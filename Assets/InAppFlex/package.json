@@ -1,0 +1,31 @@
+{
+    "name": "com.danilchizhikov.inappflex",
+    "displayName": "InAppFlex",
+    "version": "0.0.1",
+    "unity": "2022.3",
+    "description": "An lightweight system for implementing various purchasing services.",
+    "dependencies": {
+        "com.unity.purchasing": "4.10.0"
+    },
+    "keywords": [
+        "InApp",
+        "Purchasing",
+        "In-Application",
+        "In Application",
+        "iap",
+        "IAP",
+        "InAppFlex",
+        "inappflex"
+    ],
+    "category": "Tools",
+    "author": "MbsCore",
+    "repository": {
+        "type": "git",
+        "url": "ssh://github.com:DanilChizhikov/InAppFlex.git",
+        "directory": "com.danilchizhikov.inappflex"
+    },
+    "publishConfig": {
+        "registry": "https://npm.pkg.github.com/@DanilChizhikov"
+    },
+    "license": "MIT"
+}
