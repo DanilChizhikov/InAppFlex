@@ -12,6 +12,7 @@ which provides functionality for handling in-app purchases within the Unity game
     - [Install via UPM (using Git URL)](#Install-via-UPM-(using-Git-URL))
 - [Project Structure](#Project-Structure)
   - [Interfaces](#Interfaces)
+  - [Restore Adapters](#Restore-Adapters)
 - [Basic Usage](#Basic-Usage)
   - [Initialize](#Initialize)
   - [Purchasing](#Purchasing)
@@ -31,7 +32,7 @@ Prerequisites:
 1. Navigate to your project's Packages folder and open the manifest.json file.
 2. Add this line below the "dependencies": { line
     - ```json title="Packages/manifest.json"
-      "com.danilchizhikov.inappflex": "https://github.com/DanilChizhikov/InAppFlex.git?path=Assets/InAppFlex#0.0.1",
+      "com.danilchizhikov.inappflex": "https://github.com/DanilChizhikov/InAppFlex.git?path=Assets/InAppFlex#0.0.2",
       ```
 UPM should now install the package.
 
@@ -53,13 +54,17 @@ public interface IInAppService : IDisposable
     //Method to initialize the service with a dictionary of products.
     void Initialize(Dictionary<ProductType, HashSet<string>> products);
     //Method to purchase a product identified by its ID.
-    IPurchaseResponse Purchase(string productId);
+    void Purchase(string productId);
     //Method to get the price of a product.
     decimal GetPrice(string productId);
     //Method to get the currency of a product.
     string GetStringCurrency(string productId);
     //Method to confirm a pending purchase.
     void ConfirmPendingPurchase(IPurchaseResponse response);
+    //Method to check subscription and returns true if subscription has or false if hasn't
+    bool TryGetSubscriptionInfo(string productId, out SubscriptionInfo subscriptionInfo);
+    //Method for restore purchases
+    void RestorePurchases();
 }
 ```
 
@@ -68,8 +73,8 @@ public interface IInAppService : IDisposable
 ```csharp
 public interface IPurchaseResponse
 {
-    //ID of the purchased product.
-    string ProductId { get; }
+    //Purchased product.
+    Product Product { get; }
     //Transaction ID of the purchase.
     string TransactionId { get; }
     //Receipt of the purchase.
@@ -78,6 +83,50 @@ public interface IPurchaseResponse
     PurchaseStatus Status { get; }
     //Error message in case of failure.
     string ErrorMessage { get; }
+}
+```
+
+3. IRestoreAdapter
+
+```csharp
+public interface IRestoreAdapter
+{
+    bool IsAvailable { get; }
+    
+    //Method for restore purchases
+    void RestorePurchases(IExtensionProvider provider, Action<bool, string> callback);
+}
+```
+
+### Restore Adapters
+
+1. AppleRestoreAdapter
+```csharp
+public sealed class AppleRestoreAdapter : RestoreAdapter
+{
+    public override bool IsAvailable => Application.platform == RuntimePlatform.tvOS ||
+                                        Application.platform == RuntimePlatform.VisionOS ||
+                                        Application.platform == RuntimePlatform.IPhonePlayer;
+    
+    public override void RestorePurchases(IExtensionProvider provider, Action<bool, string> callback)
+    {
+        var extension = provider.GetExtension<IAppleExtensions>();
+        extension.RestoreTransactions(callback);
+    }
+}
+```
+
+2. GoogleRestoreAdapter
+```csharp
+public sealed class GoogleRestoreAdapter : RestoreAdapter
+{
+    public override bool IsAvailable => Application.platform == RuntimePlatform.Android;
+    
+    public override void RestorePurchases(IExtensionProvider provider, Action<bool, string> callback)
+    {
+        var extension = provider.GetExtension<IGooglePlayStoreExtensions>();
+        extension.RestoreTransactions(callback);
+    }
 }
 ```
 
@@ -132,7 +181,13 @@ public sealed class InAppServiceBootstrap : MonoBehaviour
             return;
         }
 
-        _service = new InAppService();
+        var appleRestoreAdapter = new AppleRestoreAdapter();
+        var googleRestoreAdapter = new GoogleRestoreAdapter();
+        _service = new InAppService(new List<IRestoreAdapter>
+                {
+                        appleRestoreAdapter,
+                        googleRestoreAdapter,
+                });
         _service.Initialize(GetProducts());
     }
 }
