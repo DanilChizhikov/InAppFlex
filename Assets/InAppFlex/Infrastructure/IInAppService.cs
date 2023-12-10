@@ -11,9 +11,11 @@ namespace MbsCore.InAppFlex.Infrastructure
         bool IsInitialized { get; }
         
         void Initialize(Dictionary<ProductType, HashSet<string>> products);
-        IPurchaseResponse Purchase(string productId);
+        void Purchase(string productId);
         decimal GetPrice(string productId);
         string GetStringCurrency(string productId);
         void ConfirmPendingPurchase(IPurchaseResponse response);
+        bool TryGetSubscriptionInfo(string productId, out SubscriptionInfo subscriptionInfo);
+        void RestorePurchases();
     }
 }

@@ -1,8 +1,10 @@
+using UnityEngine.Purchasing;
+
 namespace MbsCore.InAppFlex.Infrastructure
 {
     public interface IPurchaseResponse
     {
-        string ProductId { get; }
+        Product Product { get; }
         string TransactionId { get; }
         string Receipt { get; }
         PurchaseStatus Status { get; }

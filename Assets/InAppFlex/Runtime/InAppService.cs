@@ -10,19 +10,25 @@ namespace MbsCore.InAppFlex.Runtime
     public sealed class InAppService : IInAppService, IDetailedStoreListener
     {
         public event Action<IPurchaseResponse> OnPurchased;
-        
-        private readonly Queue<PurchaseResponse> _purchaseQueue;
+
+        private readonly Queue<string> _purchaseQueue;
+        private readonly HashSet<IRestoreAdapter> _restoreAdapters;
 
         private IStoreController _storeController;
+        private IExtensionProvider _extensionProvider;
 
         private bool _isPurchasing;
+        private bool _isRestoring;
+        private PurchaseResponse _response;
         
         public bool IsInitialized { get; private set; }
 
-        public InAppService()
+        public InAppService(IEnumerable<IRestoreAdapter> restoreAdapters)
         {
-            _purchaseQueue = new Queue<PurchaseResponse>();
+            _purchaseQueue = new Queue<string>();
+            _restoreAdapters = new HashSet<IRestoreAdapter>(restoreAdapters);
             _isPurchasing = false;
+            _isRestoring = false;
         }
         
         public void Initialize(Dictionary<ProductType, HashSet<string>> products)
@@ -52,44 +58,34 @@ namespace MbsCore.InAppFlex.Runtime
             UnityPurchasing.Initialize(this, builder);
         }
 
-        public IPurchaseResponse Purchase(string productId)
+        public void Purchase(string productId)
         {
             if (!IsInitialized)
             {
-                return new PurchaseResponse
-                        {
-                                ProductId = productId,
-                                Status = PurchaseStatus.Failure,
-                                ErrorMessage = "InAppService is not initialized!",
-                        };
+                return;
+            }
+
+            if (_isPurchasing || _isRestoring)
+            {
+                _purchaseQueue.Enqueue(productId);
+                return;
             }
 
             if (!TryGetProduct(productId, out Product product))
             {
-                return new PurchaseResponse
-                        {
-                                ProductId = productId,
-                                Status = PurchaseStatus.Failure,
-                                ErrorMessage = $"Can't find productId = {productId}",
-                        };
+                return;
             }
 
             if (!product.availableToPurchase)
             {
-                return new PurchaseResponse
-                        {
-                                ProductId = productId,
-                                Status = PurchaseStatus.Failure,
-                                ErrorMessage = "Product is not available to purchase",
-                        };
+                return;
             }
 
             var response = new PurchaseResponse();
-            response.ProductId = productId;
+            response.Product = product;
             response.Status = PurchaseStatus.Processing;
-            _purchaseQueue.Enqueue(response);
-            TryUpdatePurchaseQueue();
-            return response;
+            _isPurchasing = true;
+            _storeController.InitiatePurchase(product);
         }
 
         public decimal GetPrice(string productId)
@@ -106,14 +102,60 @@ namespace MbsCore.InAppFlex.Runtime
 
         public void ConfirmPendingPurchase(IPurchaseResponse response)
         {
-            if (!TryGetProduct(response.ProductId, out Product product))
+            _storeController.ConfirmPendingPurchase(response.Product);
+        }
+
+        public bool TryGetSubscriptionInfo(string productId, out SubscriptionInfo subscriptionInfo)
+        {
+            subscriptionInfo = null;
+            if (!IsInitialized)
+            {
+                return false;
+            }
+
+            Product[] products = _storeController.products.all;
+            for (int i = 0; i < products.Length; i++)
+            {
+                Product item = products[i];
+                if (item.definition.id != productId || !item.hasReceipt)
+                {
+                    continue;
+                }
+
+                var subscriptionManager = new SubscriptionManager(item, null);
+                try
+                {
+                    subscriptionInfo = subscriptionManager.getSubscriptionInfo();
+
+                    return true;
+                }
+                catch
+                {
+                    Debug.LogError($"<color=red>[{nameof(InAppService)}]</color> No receipt");
+                }
+            }
+
+            return false;
+        }
+
+        public void RestorePurchases()
+        {
+            if (!IsInitialized)
             {
                 return;
             }
-            
-            _storeController.ConfirmPendingPurchase(product);
+
+            foreach (var adapter in _restoreAdapters)
+            {
+                if (adapter.IsAvailable)
+                {
+                    _isRestoring = true;
+                    adapter.RestorePurchases(_extensionProvider, RestorePurchasesCallback);
+                    break;
+                }
+            }
         }
-        
+
         public void Dispose()
         {
             if (!IsInitialized)
@@ -121,14 +163,9 @@ namespace MbsCore.InAppFlex.Runtime
                 return;
             }
             
-            while (_purchaseQueue.TryDequeue(out PurchaseResponse response))
-            {
-                response.Status = PurchaseStatus.Failure;
-                response.ErrorMessage = "InAppService was been disposed";
-            }
-            
             _storeController = null;
             _isPurchasing = false;
+            _isRestoring = false;
             IsInitialized = false;
         }
 
@@ -138,29 +175,42 @@ namespace MbsCore.InAppFlex.Runtime
             return product != null;
         }
 
-        private void TryUpdatePurchaseQueue()
+        private void CompletePurchase(ref PurchaseResponse response)
         {
-            if (_isPurchasing)
+            OnPurchased?.Invoke(response.Clone());
+            response = null;
+            _isPurchasing = false;
+            _isRestoring = false;
+            if (_purchaseQueue.TryDequeue(out string productId))
             {
-                return;
+                Purchase(productId);
             }
-
-            if (_purchaseQueue.TryPeek(out PurchaseResponse response) &&
-                TryGetProduct(response.ProductId, out Product product))
+        }
+        
+        private void RestorePurchasesCallback(bool result, string errorMessage)
+        {
+            if (result)
             {
-                _storeController.InitiatePurchase(product);
-                _isPurchasing = true;
+                Debug.Log($"[{nameof(InAppService)}] Restoring successful!");
+            }
+            else
+            {
+                Debug.LogError($"<color=red>[{nameof(InAppService)}]</color> Restoring failed! Message: {errorMessage}");
             }
         }
 
-        private void SendPurchaseEvent(IPurchaseResponse response)
+        private PurchaseResponse GetEmptyResponse(Product product)
         {
-            OnPurchased?.Invoke(response);
+            var response = new PurchaseResponse();
+            response.Product = product;
+            response.Status = PurchaseStatus.Processing;
+            return response;
         }
         
         void IStoreListener.OnInitialized(IStoreController controller, IExtensionProvider extensions)
         {
             _storeController = controller;
+            _extensionProvider = extensions;
             IsInitialized = true;
             Debug.Log("Purchasing was been initialized!");
         }
@@ -178,11 +228,16 @@ namespace MbsCore.InAppFlex.Runtime
 
         PurchaseProcessingResult IStoreListener.ProcessPurchase(PurchaseEventArgs purchaseEvent)
         {
-            PurchaseResponse response = _purchaseQueue.Dequeue();
-            response.TransactionId = purchaseEvent.purchasedProduct.transactionID;
-            response.Receipt = purchaseEvent.purchasedProduct.receipt;
-            response.Status = PurchaseStatus.Success;
-            SendPurchaseEvent(response);
+            if (_response == null)
+            {
+                _response = GetEmptyResponse(purchaseEvent.purchasedProduct);
+            }
+
+            _response.Product = purchaseEvent.purchasedProduct;
+            _response.TransactionId = purchaseEvent.purchasedProduct.transactionID;
+            _response.Receipt = purchaseEvent.purchasedProduct.receipt;
+            _response.Status = PurchaseStatus.Success;
+            CompletePurchase(ref _response);
             return PurchaseProcessingResult.Pending;
         }
 
@@ -193,11 +248,16 @@ namespace MbsCore.InAppFlex.Runtime
                             product.definition.storeSpecificId,
                             failureReason,
                     };
+            
+            if (_response == null)
+            {
+                _response = GetEmptyResponse(product);
+            }
 
-            PurchaseResponse response = _purchaseQueue.Dequeue();
-            response.ErrorMessage = failureReason.ToString();
-            response.Status = PurchaseStatus.Failure;
-            SendPurchaseEvent(response);
+            _response.Product = product;
+            _response.ErrorMessage = failureReason.ToString();
+            _response.Status = PurchaseStatus.Failure;
+            CompletePurchase(ref _response);
             Debug.LogErrorFormat("<color=red>[PurchaseFailed]</color> Product: '{0}', PurchaseFailureReason: {1}", logParams);
         }
 
@@ -210,10 +270,15 @@ namespace MbsCore.InAppFlex.Runtime
                             failureDescription.message,
                     };
             
-            PurchaseResponse response = _purchaseQueue.Dequeue();
-            response.ErrorMessage = failureDescription.message;
-            response.Status = PurchaseStatus.Failure;
-            SendPurchaseEvent(response);
+            if (_response == null)
+            {
+                _response = GetEmptyResponse(product);
+            }
+
+            _response.Product = product;
+            _response.ErrorMessage = failureDescription.message;
+            _response.Status = PurchaseStatus.Failure;
+            CompletePurchase(ref _response);
             Debug.LogErrorFormat("<color=red>[PurchaseFailed]</color> Product: '{0}', PurchaseFailureReason: {1}, Message: {2}", logParams);
         }
     }
