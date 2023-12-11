@@ -199,10 +199,9 @@ Below is one of the possible options for making a purchase.
 
 Example:
 ```csharp
-internal sealed class PurchaseExample
+internal sealed class PurchaseExample : IDisposable
 {
     private const string ProductId = "Example_Product_Id";
-    private const int WaitDelay = 1000;
 
     private readonly IInAppService _inAppService;
 
@@ -211,40 +210,29 @@ internal sealed class PurchaseExample
         _inAppService = inAppService;
     }
 
-    public async Task PurchaseAsync(CancellationToken token = new CancellationToken())
+    public void Initialize()
     {
-        IPurchaseResponse response = _inAppService.Purchase(ProductId);
-        await WaitUntil(() => response.Status != PurchaseStatus.Processing, token);
-        if (token.IsCancellationRequested)
+        _inAppService.OnPurchased += InAppPurchasedCallback;
+    }
+
+    public void Purchase()
+    {
+        _inAppService.Purchase(ProductId);
+    }
+    
+    public void Dispose()
+    {
+        _inAppService.OnPurchased -= InAppPurchasedCallback;
+    }
+    
+    private void InAppPurchasedCallback(IPurchaseResponse response)
+    {
+        if (response.Product.definition.id != ProductId)
         {
-            Debug.LogError("Purchasing was been cancelled!");
             return;
         }
         
-        switch (response.Status)
-        {
-            case PurchaseStatus.Success:
-            {
-                _inAppService.ConfirmPendingPurchase(response);
-            } break;
-
-            case PurchaseStatus.Failure:
-            {
-                Debug.LogError(response.ErrorMessage);
-            } break;
-        }
-    }
-
-    private async Task WaitUntil(Func<bool> predicate, CancellationToken token = new CancellationToken())
-    {
-        while (!predicate.Invoke())
-        {
-            await Task.Delay(WaitDelay, token);
-            if (token.IsCancellationRequested)
-            {
-                return;
-            }
-        }
+        // some code...
     }
 }
 ```
