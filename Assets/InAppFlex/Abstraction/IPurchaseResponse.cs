@@ -1,6 +1,6 @@
 using UnityEngine.Purchasing;
 
-namespace MbsCore.InAppFlex.Infrastructure
+namespace DTech.InAppFlex.Abstraction
 {
     public interface IPurchaseResponse
     {

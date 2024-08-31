@@ -1,4 +1,4 @@
-namespace MbsCore.InAppFlex.Infrastructure
+namespace DTech.InAppFlex.Abstraction
 {
     public enum PurchaseStatus
     {

@@ -1,7 +1,7 @@
-using MbsCore.InAppFlex.Infrastructure;
+using DTech.InAppFlex.Abstraction;
 using UnityEngine.Purchasing;
 
-namespace MbsCore.InAppFlex.Runtime
+namespace DTech.InAppFlex.Runtime
 {
     internal sealed class PurchaseResponse : IPurchaseResponse
     {
@@ -10,6 +10,7 @@ namespace MbsCore.InAppFlex.Runtime
         public string Receipt { get; set; }
         public PurchaseStatus Status { get; set; }
         public string ErrorMessage { get; set; }
+        public bool CanConfirm { get; set; }
 
         public IPurchaseResponse Clone() => new PurchaseResponse
                 {
@@ -18,6 +19,7 @@ namespace MbsCore.InAppFlex.Runtime
                         Receipt = Receipt,
                         Status = Status,
                         ErrorMessage = ErrorMessage,
+                        CanConfirm = CanConfirm,
                 };
     }
 }

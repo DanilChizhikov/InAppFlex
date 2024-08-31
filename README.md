@@ -32,7 +32,7 @@ Prerequisites:
 1. Navigate to your project's Packages folder and open the manifest.json file.
 2. Add this line below the "dependencies": { line
     - ```json title="Packages/manifest.json"
-      "com.danilchizhikov.inappflex": "https://github.com/DanilChizhikov/InAppFlex.git?path=Assets/InAppFlex#0.0.2",
+      "com.danilchizhikov.inappflex": "https://github.com/DanilChizhikov/InAppFlex.git?path=Assets/InAppFlex",
       ```
 UPM should now install the package.
 
@@ -45,6 +45,12 @@ UPM should now install the package.
 ```csharp
 public interface IInAppService : IDisposable
 {
+    //Event triggered when a service initialized.
+    event Action OnInitialized;
+    //Event triggered when a service initialized with errors.
+    event Action<InitializationFailureReason> OnInitializedFailed;
+    //Event triggered when a purchase restored.
+    event Action<bool> OnPurchasesRestored;
     //Event triggered when a purchase is made.
     event Action<IPurchaseResponse> OnPurchased;
 
@@ -54,7 +60,7 @@ public interface IInAppService : IDisposable
     //Method to initialize the service with a dictionary of products.
     void Initialize(Dictionary<ProductType, HashSet<string>> products);
     //Method to purchase a product identified by its ID.
-    void Purchase(string productId);
+    void Purchase(string productId, bool autoConfirm = false);
     //Method to get the price of a product.
     decimal GetPrice(string productId);
     //Method to get the currency of a product.

@@ -2,7 +2,7 @@ using System;
 using UnityEngine;
 using UnityEngine.Purchasing;
 
-namespace MbsCore.InAppFlex.Runtime.Adapters
+namespace DTech.InAppFlex.Runtime.Adapters
 {
     public sealed class AppleRestoreAdapter : RestoreAdapter
     {
