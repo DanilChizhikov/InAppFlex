@@ -1,8 +1,8 @@
 using System;
-using MbsCore.InAppFlex.Infrastructure;
+using DTech.InAppFlex.Abstraction;
 using UnityEngine.Purchasing;
 
-namespace MbsCore.InAppFlex.Runtime
+namespace DTech.InAppFlex.Runtime
 {
     public abstract class RestoreAdapter : IRestoreAdapter
     {
