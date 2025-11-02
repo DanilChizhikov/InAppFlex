@@ -37,9 +37,9 @@ namespace DTech.InAppFlex.Editor
             return entries;
         }
 
-        public bool OnSelectEntry(SearchTreeEntry SearchTreeEntry, SearchWindowContext context)
+        public bool OnSelectEntry(SearchTreeEntry searchTreeEntry, SearchWindowContext context)
         {
-            if (SearchTreeEntry.userData is string productId)
+            if (searchTreeEntry.userData is string productId)
             {
                 _onSelectedCallback?.Invoke(productId);
                 return true;

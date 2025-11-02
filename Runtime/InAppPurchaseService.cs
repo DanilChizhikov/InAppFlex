@@ -2,55 +2,66 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Purchasing;
+using UnityEngine.Purchasing.Extension;
 
 namespace DTech.InAppFlex
 {
-    public sealed class InAppPurchaseService : IInAppPurchaseService, IDetailedStoreListener
+    public sealed class InAppPurchaseService : IInAppPurchaseService, IDisposable
     {
         public event Action OnInitialized;
-        public event Action<InitializationFailureReason> OnInitializedFailed;
-        public event Action<bool> OnPurchasesRestored;
+        public event Action<InitializationFailureException> OnInitializeFailed;
         public event Action<IPurchaseResponse> OnPurchased;
-        
+        public event Action<bool> OnPurchasesRestored;
+        public event Action<PurchaseFailedException> OnPurchaseFailed;
+
+        private readonly IProductCollection _productCollection;
+        private readonly DetailedStoreListener _storeListener;
         private readonly HashSet<IRestoreAdapter> _restoreAdapters;
         private readonly Dictionary<string, Queue<PurchaseResponse>> _responseMap;
-
-        private IStoreController _storeController;
-        private IExtensionProvider _extensionProvider;
         
         public bool IsInitialized { get; private set; }
+        
+        private IStoreController _storeController;
+        private IExtensionProvider _extensionProvider;
+        private bool _isInitializeProcessing;
 
-        public InAppPurchaseService(IEnumerable<IRestoreAdapter> restoreAdapters)
+        public InAppPurchaseService(IProductCollection productCollection, IEnumerable<IRestoreAdapter> restoreAdapters)
         {
+            _productCollection = productCollection;
+            _storeListener = new DetailedStoreListener(ProcessPurchase);
+            _storeListener.OnInitialized += InitializedHandler;
+            _storeListener.OnInitializeFailed += InitializeFailedHandler;
+            _storeListener.OnPurchaseFailed += PurchaseFailedHandler;
+            
             _restoreAdapters = new HashSet<IRestoreAdapter>(restoreAdapters);
             _responseMap = new Dictionary<string, Queue<PurchaseResponse>>();
         }
-        
-        public void Initialize(Dictionary<ProductType, HashSet<string>> products)
+
+        public void Initialize()
         {
-            if (IsInitialized)
+            if (IsInitialized || _isInitializeProcessing)
             {
                 return;
             }
 
-            
-            if (products.Count <= 0)
+            if (_productCollection.Count <= 0)
             {
+                Debug.LogWarning($"[{nameof(InAppPurchaseService)}] No products were been added!");
                 return;
             }
-            
-            ConfigurationBuilder builder = ConfigurationBuilder.Instance(StandardPurchasingModule.Instance());
-            foreach (var product in products)
+
+            IPurchasingModule purchasingModule = StandardPurchasingModule.Instance();
+            ConfigurationBuilder builder = ConfigurationBuilder.Instance(purchasingModule);
+            for (int i = 0; i < _productCollection.Count; i++)
             {
-                foreach (string productId in product.Value)
-                {
-                    builder.AddProduct(productId, product.Key);
-                    Debug.Log($"[{nameof(InAppPurchaseService)}] Product: {product.Value} was been added!");
-                }
+                IProductInfo productInfo = _productCollection[i];
+                builder.AddProduct(productInfo.StoreId.ToString(), productInfo.Type);
+                Debug.Log($"[{nameof(InAppPurchaseService)}] Product: {productInfo.StoreId} was been added!");
             }
             
             Debug.Log($"[{nameof(InAppPurchaseService)}] Begin initialize purchasing...");
-            UnityPurchasing.Initialize(this, builder);
+            UnityPurchasing.Initialize(_storeListener, builder);
+            _isInitializeProcessing = true;
         }
 
         public void Purchase(string productId, bool autoConfirm = false)
@@ -119,11 +130,11 @@ namespace DTech.InAppFlex
                 try
                 {
                     subscriptionInfo = subscriptionManager.getSubscriptionInfo();
-                    return true;
+                    return subscriptionInfo != null;
                 }
                 catch
                 {
-                    Debug.LogError($"<color=red>[{nameof(InAppPurchaseService)}]</color> No receipt");
+                    Debug.LogError($"[{nameof(InAppPurchaseService)}] No receipt for product: {productId}");
                 }
             }
 
@@ -154,6 +165,9 @@ namespace DTech.InAppFlex
                 return;
             }
             
+            _storeListener.OnInitialized -= InitializedHandler;
+            _storeListener.OnInitializeFailed -= InitializeFailedHandler;
+            _storeListener.OnPurchaseFailed -= PurchaseFailedHandler;
             _storeController = null;
             IsInitialized = false;
         }
@@ -200,29 +214,7 @@ namespace DTech.InAppFlex
             return _responseMap.TryGetValue(productId, out Queue<PurchaseResponse> responses) && responses.TryDequeue(out response);
         }
         
-        void IStoreListener.OnInitialized(IStoreController controller, IExtensionProvider extensions)
-        {
-            _storeController = controller;
-            _extensionProvider = extensions;
-            IsInitialized = true;
-            OnInitialized?.Invoke();
-            Debug.Log("Purchasing was been initialized!");
-        }
-
-        void IStoreListener.OnInitializeFailed(InitializationFailureReason error)
-        {
-            Debug.LogErrorFormat("<color=red>[{0}]</color> InitializationFailureReason: {1}", nameof(InAppPurchaseService), error.ToString());
-            OnInitializedFailed?.Invoke(error);
-        }
-
-        void IStoreListener.OnInitializeFailed(InitializationFailureReason error, string message)
-        {
-            Debug.LogErrorFormat("<color=red>[{0}]</color> InitializationFailureReason: {1}, message: {2}",
-                                nameof(InAppPurchaseService), error.ToString(), message);
-            OnInitializedFailed?.Invoke(error);
-        }
-
-        PurchaseProcessingResult IStoreListener.ProcessPurchase(PurchaseEventArgs purchaseEvent)
+        private PurchaseProcessingResult ProcessPurchase(PurchaseEventArgs purchaseEvent)
         {
             PurchaseProcessingResult result = PurchaseProcessingResult.Pending;
             if (!TryGetResponse(purchaseEvent.purchasedProduct.definition.id, out PurchaseResponse response))
@@ -242,46 +234,34 @@ namespace DTech.InAppFlex
 
             return result;
         }
-
-        void IStoreListener.OnPurchaseFailed(Product product, PurchaseFailureReason failureReason)
+        
+        private void InitializedHandler(IStoreController controller, IExtensionProvider extensions)
         {
-            var logParams = new object[]
-                    {
-                            product.definition.storeSpecificId,
-                            failureReason,
-                    };
-
-            if (TryGetResponse(product.definition.id, out PurchaseResponse response))
-            {
-                response.Product = product;
-                response.ErrorMessage = failureReason.ToString();
-                response.Status = PurchaseStatus.Failure;
-                CompletePurchase(response);
-            }
-            
-            Debug.LogErrorFormat("<color=red>[{0}]</color> OnPurchaseFailed\n Product: '{1}', PurchaseFailureReason: {2}",
-                nameof(InAppPurchaseService), product.receipt, logParams);
+            _storeController = controller;
+            _extensionProvider = extensions;
+            IsInitialized = true;
+            OnInitialized?.Invoke();
+            Debug.Log("Purchasing was been initialized!");
         }
-
-        void IDetailedStoreListener.OnPurchaseFailed(Product product, PurchaseFailureDescription failureDescription)
+        
+        private void InitializeFailedHandler(InitializationFailureException exception)
         {
-            var logParams = new object[]
-                    {
-                            product.definition.storeSpecificId,
-                            failureDescription.reason,
-                            failureDescription.message,
-                    };
-            
-            if (TryGetResponse(product.definition.id, out PurchaseResponse response))
+            _isInitializeProcessing = false;
+            IsInitialized = false;
+            OnInitializeFailed?.Invoke(exception);
+        }
+        
+        private void PurchaseFailedHandler(PurchaseFailedException exception)
+        {
+            if (TryGetResponse(exception.ProductId, out PurchaseResponse response))
             {
-                response.Product = product;
-                response.ErrorMessage = failureDescription.message;
+                response.Product = response.Product;
+                response.ErrorMessage = exception.ToString();
                 response.Status = PurchaseStatus.Failure;
                 CompletePurchase(response);
             }
             
-            Debug.LogErrorFormat("<color=red>[{0}]</color> OnPurchaseFailed\n Product: '{1}', PurchaseFailureReason: {2}, Message: {3}",
-                nameof(InAppPurchaseService), product.receipt, logParams);
+            OnPurchaseFailed?.Invoke(exception);
         }
     }
 }

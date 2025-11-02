@@ -8,7 +8,7 @@ namespace DTech.InAppFlex
 	internal sealed class ProductInfo : IProductInfo
 	{
 		[SerializeField] private string _id = default;
-		[SerializeField] private ProductType _type = ProductType.Unknown;
+		[SerializeField] private ProductType _type;
 		[SerializeField] private ProductStoreId[] _storeIds = Array.Empty<ProductStoreId>();
 
 		public string Id => _id;

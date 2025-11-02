@@ -6,7 +6,11 @@ namespace DTech.InAppFlex
 	[Serializable]
 	internal sealed class ProductStoreId : IProductStoreId
 	{
-		[field: SerializeField] public RuntimePlatform Platform { get; private set; }
-		[field: SerializeField] public string StoreId { get; private set; }
+		[SerializeField] private RuntimePlatform _platform;
+		[SerializeField] private string _storeId;
+
+		public RuntimePlatform Platform => _platform;
+
+		public override string ToString() => _storeId;
 	}
 }
