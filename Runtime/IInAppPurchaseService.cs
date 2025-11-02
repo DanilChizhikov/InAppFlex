@@ -2,12 +2,12 @@ using System;
 using System.Collections.Generic;
 using UnityEngine.Purchasing;
 
-namespace DTech.InAppFlex.Abstraction
+namespace DTech.InAppFlex
 {
-    public interface IInAppService : IDisposable
+    public interface IInAppPurchaseService
     {
         event Action OnInitialized;
-        event Action<InitializationFailureReason> OnInitializedFailed;
+        event Action OnInitializedFailed;
         event Action<bool> OnPurchasesRestored;
         event Action<IPurchaseResponse> OnPurchased;
 

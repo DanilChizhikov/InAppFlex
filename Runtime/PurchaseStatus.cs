@@ -1,4 +1,4 @@
-namespace DTech.InAppFlex.Abstraction
+namespace DTech.InAppFlex
 {
     public enum PurchaseStatus
     {

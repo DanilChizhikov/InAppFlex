@@ -1,13 +1,11 @@
 using System;
 using System.Collections.Generic;
-using DTech.InAppFlex.Abstraction;
 using UnityEngine;
 using UnityEngine.Purchasing;
-using UnityEngine.Purchasing.Extension;
 
-namespace DTech.InAppFlex.Runtime
+namespace DTech.InAppFlex
 {
-    public sealed class InAppService : IInAppService, IDetailedStoreListener
+    public sealed class InAppPurchaseService : IInAppPurchaseService, IDetailedStoreListener
     {
         public event Action OnInitialized;
         public event Action<InitializationFailureReason> OnInitializedFailed;
@@ -22,7 +20,7 @@ namespace DTech.InAppFlex.Runtime
         
         public bool IsInitialized { get; private set; }
 
-        public InAppService(IEnumerable<IRestoreAdapter> restoreAdapters)
+        public InAppPurchaseService(IEnumerable<IRestoreAdapter> restoreAdapters)
         {
             _restoreAdapters = new HashSet<IRestoreAdapter>(restoreAdapters);
             _responseMap = new Dictionary<string, Queue<PurchaseResponse>>();
@@ -47,11 +45,11 @@ namespace DTech.InAppFlex.Runtime
                 foreach (string productId in product.Value)
                 {
                     builder.AddProduct(productId, product.Key);
-                    Debug.Log($"[{nameof(InAppService)}] Product: {product.Value} was been added!");
+                    Debug.Log($"[{nameof(InAppPurchaseService)}] Product: {product.Value} was been added!");
                 }
             }
             
-            Debug.Log($"[{nameof(InAppService)}] Begin initialize purchasing...");
+            Debug.Log($"[{nameof(InAppPurchaseService)}] Begin initialize purchasing...");
             UnityPurchasing.Initialize(this, builder);
         }
 
@@ -125,7 +123,7 @@ namespace DTech.InAppFlex.Runtime
                 }
                 catch
                 {
-                    Debug.LogError($"<color=red>[{nameof(InAppService)}]</color> No receipt");
+                    Debug.LogError($"<color=red>[{nameof(InAppPurchaseService)}]</color> No receipt");
                 }
             }
 
@@ -181,11 +179,11 @@ namespace DTech.InAppFlex.Runtime
         {
             if (result)
             {
-                Debug.Log($"[{nameof(InAppService)}] Restoring successful!");
+                Debug.Log($"[{nameof(InAppPurchaseService)}] Restoring successful!");
             }
             else
             {
-                Debug.LogError($"<color=red>[{nameof(InAppService)}]</color> Restoring failed! Message: {errorMessage}");
+                Debug.LogError($"<color=red>[{nameof(InAppPurchaseService)}]</color> Restoring failed! Message: {errorMessage}");
             }
 
             OnPurchasesRestored?.Invoke(result);
@@ -213,14 +211,14 @@ namespace DTech.InAppFlex.Runtime
 
         void IStoreListener.OnInitializeFailed(InitializationFailureReason error)
         {
-            Debug.LogErrorFormat("<color=red>[{0}]</color> InitializationFailureReason: {1}", nameof(InAppService), error.ToString());
+            Debug.LogErrorFormat("<color=red>[{0}]</color> InitializationFailureReason: {1}", nameof(InAppPurchaseService), error.ToString());
             OnInitializedFailed?.Invoke(error);
         }
 
         void IStoreListener.OnInitializeFailed(InitializationFailureReason error, string message)
         {
             Debug.LogErrorFormat("<color=red>[{0}]</color> InitializationFailureReason: {1}, message: {2}",
-                                nameof(InAppService), error.ToString(), message);
+                                nameof(InAppPurchaseService), error.ToString(), message);
             OnInitializedFailed?.Invoke(error);
         }
 
@@ -229,7 +227,7 @@ namespace DTech.InAppFlex.Runtime
             PurchaseProcessingResult result = PurchaseProcessingResult.Pending;
             if (!TryGetResponse(purchaseEvent.purchasedProduct.definition.id, out PurchaseResponse response))
             {
-                Debug.LogError($"[{nameof(InAppService)}] No response for product: {purchaseEvent.purchasedProduct.definition.id}!");
+                Debug.LogError($"[{nameof(InAppPurchaseService)}] No response for product: {purchaseEvent.purchasedProduct.definition.id}!");
                 result = PurchaseProcessingResult.Complete;
             }
 
@@ -262,7 +260,7 @@ namespace DTech.InAppFlex.Runtime
             }
             
             Debug.LogErrorFormat("<color=red>[{0}]</color> OnPurchaseFailed\n Product: '{1}', PurchaseFailureReason: {2}",
-                nameof(InAppService), product.receipt, logParams);
+                nameof(InAppPurchaseService), product.receipt, logParams);
         }
 
         void IDetailedStoreListener.OnPurchaseFailed(Product product, PurchaseFailureDescription failureDescription)
@@ -283,7 +281,7 @@ namespace DTech.InAppFlex.Runtime
             }
             
             Debug.LogErrorFormat("<color=red>[{0}]</color> OnPurchaseFailed\n Product: '{1}', PurchaseFailureReason: {2}, Message: {3}",
-                nameof(InAppService), product.receipt, logParams);
+                nameof(InAppPurchaseService), product.receipt, logParams);
         }
     }
 }

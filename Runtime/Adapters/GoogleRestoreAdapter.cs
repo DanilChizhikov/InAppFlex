@@ -2,7 +2,7 @@ using System;
 using UnityEngine;
 using UnityEngine.Purchasing;
 
-namespace DTech.InAppFlex.Runtime.Adapters
+namespace DTech.InAppFlex
 {
     public sealed class GoogleRestoreAdapter : RestoreAdapter
     {

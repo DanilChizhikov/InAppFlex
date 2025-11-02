@@ -1,7 +1,6 @@
-using DTech.InAppFlex.Abstraction;
 using UnityEngine.Purchasing;
 
-namespace DTech.InAppFlex.Runtime
+namespace DTech.InAppFlex
 {
     internal sealed class PurchaseResponse : IPurchaseResponse
     {
