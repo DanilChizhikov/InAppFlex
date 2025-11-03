@@ -6,6 +6,6 @@ namespace DTech.InAppFlex
 	{
 		string Id { get; }
 		ProductType Type { get; }
-		IProductStoreId StoreId { get; }
+		string StoreId { get; }
 	}
 }

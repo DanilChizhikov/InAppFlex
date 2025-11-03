@@ -1,11 +1,11 @@
 {
-    "name": "com.danilchizhikov.inappflex",
+    "name": "com.dtech.inappflex",
     "displayName": "InAppFlex",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "unity": "2022.3",
     "description": "An lightweight system for implementing various purchasing services.",
     "dependencies": {
-        "com.unity.purchasing": "4.12.2"
+        "com.unity.purchasing": "4.13.0"
     },
     "keywords": [
         "InApp Purchasing",
@@ -17,12 +17,12 @@
         "InAppFlex",
         "inappflex"
     ],
-    "category": "Tools",
-    "author": "MbsCore",
+    "category": "In App Purchasing",
+    "author": "DTech",
     "repository": {
         "type": "git",
         "url": "ssh://github.com:DanilChizhikov/InAppFlex.git",
-        "directory": "com.danilchizhikov.inappflex"
+        "directory": "com.dtech"
     },
     "publishConfig": {
         "registry": "https://npm.pkg.github.com/@DanilChizhikov"

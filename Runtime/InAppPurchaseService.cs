@@ -57,7 +57,7 @@ namespace DTech.InAppFlex
             for (int i = 0; i < _productCollection.Count; i++)
             {
                 IProductInfo productInfo = _productCollection[i];
-                builder.AddProduct(productInfo.StoreId.ToString(), productInfo.Type);
+                builder.AddProduct(productInfo.StoreId, productInfo.Type);
                 Debug.Log($"[{nameof(InAppPurchaseService)}] Product: {productInfo.StoreId} was been added!");
             }
             
