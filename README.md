@@ -8,241 +8,172 @@ which provides functionality for handling in-app purchases within the Unity game
 
 ## Table of Contents
 - [Getting Started](#Getting-Started)
+    - [Prerequisites](#prerequisites)
     - [Install manually (using .unitypackage)](#Install-manually-(using-.unitypackage))
     - [Install via UPM (using Git URL)](#Install-via-UPM-(using-Git-URL))
-- [Project Structure](#Project-Structure)
-  - [Interfaces](#Interfaces)
-  - [Restore Adapters](#Restore-Adapters)
+- [Features](#Features)
 - [Basic Usage](#Basic-Usage)
-  - [Initialize](#Initialize)
-  - [Purchasing](#Purchasing)
-- [License](#License)
+  - [Setting up Products](#Setting-up-Products)
+  - [Initializing the Service](#Initializing-the-Service)
+  - [Making a Purchase](#Making-a-Purchase)
+  - [Restoring Purchases](#Restoring-Purchases)
+- [API Reference](#api-reference)
+  - [IInAppPurchaseService](#iinapppurchaseservice)
+  - [IPurchaseResponse](#ipurchaseresponse)
+  - [ProductInfo](#productinfo)
+  - [ProductCollection](#productcollection)
+  - [IPurchaseResponse](#ipurchaseresponse)
+- [License](#license)
+
 
 ## Getting Started
 Prerequisites:
 - [GIT](https://git-scm.com/downloads)
 - [Unity](https://unity.com/releases/editor/archive) 2022.3+
-- [Unity Purchasing](https://docs.unity3d.com/Manual/com.unity.purchasing.html) 4.10.0+
+- [Unity Purchasing](https://docs.unity3d.com/Manual/com.unity.purchasing.html) 4.13.0+
 
 ### Install manually (using .unitypackage)
 1. Download the .unitypackage from [releases](https://github.com/DanilChizhikov/InAppFlex/releases/) page.
-2. Open InAppFlex.x.x.x.unitypackage
+2. Import com.dtech.inappflex.x.x.x.unitypackage into your project.
 
 ### Install via UPM (using Git URL)
-1. Navigate to your project's Packages folder and open the manifest.json file.
-2. Add this line below the "dependencies": { line
-    - ```json title="Packages/manifest.json"
-      "com.danilchizhikov.inappflex": "https://github.com/DanilChizhikov/InAppFlex.git?path=Assets/InAppFlex",
-      ```
-UPM should now install the package.
+1. Open the manifest.json file in your project's Packages folder.
+2. Add the following line to the dependencies section:
+   ```json
+   "com.dtech.inappflex": "https://github.com/DanilChizhikov/InAppFlex.git",
+    ```
+3. Unity will automatically import the package.
 
-## Project Structure
+If you want to set a target version, InAppFlex uses the `v*.*.*` release tag so you can specify a version like #v2.0.0.
 
-### Interfaces
+For example `https://github.com/DanilChizhikov/InAppFlex.git#v2.0.0`.
 
-1. IInAppService
+## Features
 
-```csharp
-public interface IInAppService : IDisposable
-{
-    //Event triggered when a service initialized.
-    event Action OnInitialized;
-    //Event triggered when a service initialized with errors.
-    event Action<InitializationFailureReason> OnInitializedFailed;
-    //Event triggered when a purchase restored.
-    event Action<bool> OnPurchasesRestored;
-    //Event triggered when a purchase is made.
-    event Action<IPurchaseResponse> OnPurchased;
-
-    //Property to check if the service is initialized.
-    bool IsInitialized { get; }
-    
-    //Method to initialize the service with a dictionary of products.
-    void Initialize(Dictionary<ProductType, HashSet<string>> products);
-    //Method to purchase a product identified by its ID.
-    void Purchase(string productId, bool autoConfirm = false);
-    //Method to get the price of a product.
-    decimal GetPrice(string productId);
-    //Method to get the currency of a product.
-    string GetStringCurrency(string productId);
-    //Method to confirm a pending purchase.
-    void ConfirmPendingPurchase(IPurchaseResponse response);
-    //Method to check subscription and returns true if subscription has or false if hasn't
-    bool TryGetSubscriptionInfo(string productId, out SubscriptionInfo subscriptionInfo);
-    //Method for restore purchases
-    void RestorePurchases();
-}
-```
-
-2. IPurchaseResponse
-
-```csharp
-public interface IPurchaseResponse
-{
-    //Purchased product.
-    Product Product { get; }
-    //Transaction ID of the purchase.
-    string TransactionId { get; }
-    //Receipt of the purchase.
-    string Receipt { get; }
-    //Status of the purchase (Processing, Success, Failure).
-    PurchaseStatus Status { get; }
-    //Error message in case of failure.
-    string ErrorMessage { get; }
-}
-```
-
-3. IRestoreAdapter
-
-```csharp
-public interface IRestoreAdapter
-{
-    bool IsAvailable { get; }
-    
-    //Method for restore purchases
-    void RestorePurchases(IExtensionProvider provider, Action<bool, string> callback);
-}
-```
-
-### Restore Adapters
-
-1. AppleRestoreAdapter
-```csharp
-public sealed class AppleRestoreAdapter : RestoreAdapter
-{
-    public override bool IsAvailable => Application.platform == RuntimePlatform.tvOS ||
-                                        Application.platform == RuntimePlatform.VisionOS ||
-                                        Application.platform == RuntimePlatform.IPhonePlayer;
-    
-    public override void RestorePurchases(IExtensionProvider provider, Action<bool, string> callback)
-    {
-        var extension = provider.GetExtension<IAppleExtensions>();
-        extension.RestoreTransactions(callback);
-    }
-}
-```
-
-2. GoogleRestoreAdapter
-```csharp
-public sealed class GoogleRestoreAdapter : RestoreAdapter
-{
-    public override bool IsAvailable => Application.platform == RuntimePlatform.Android;
-    
-    public override void RestorePurchases(IExtensionProvider provider, Action<bool, string> callback)
-    {
-        var extension = provider.GetExtension<IGooglePlayStoreExtensions>();
-        extension.RestoreTransactions(callback);
-    }
-}
-```
+- 🛒 **Cross-Platform Support**: Works with both iOS and Android in-app purchases
+- 🔄 **Purchase Restoration**: Built-in support for restoring purchases across devices
+- 🔄 **Asynchronous Operations**: Non-blocking purchase flow with event-based callbacks
+- 🏷️ **Product Management**: Easy management of in-app products with platform-specific store IDs
+- 🔍 **Subscription Support**
+- 💰 **Price Information**: Get localized prices and currency codes
+- 🛡️ **Error Handling**: Comprehensive error handling and purchase validation
+- 🔌 **Extensible Architecture**: Support for custom restore adapters
 
 ## Basic Usage
+### Setting up Products
+Create a `ProductCollection` asset and add your in-app products:
 
-### Initialize
-First, you need to initialize the InAppService, this can be done using different methods.
-Here we will show the easiest way, which is not the method that we recommend using!
+1. Right-click in Project window → Create → DTech → InAppFlex → Product Collection
+2. Add your products with their respective store IDs for different platforms
+3. Configure product types (Consumable, Non-Consumable, Subscription)
+
+### Initializing the Service
+
 ```csharp
-public sealed class InAppServiceBootstrap : MonoBehaviour
+// Create product collection reference
+[SerializeField] private ProductCollection _productCollection;
+
+// Create restore adapters (optional)
+private readonly List<IRestoreAdapter> _restoreAdapters = new()
 {
-    [Serializable]
-    private struct ProductInfo
+    new AppleRestoreAdapter(),
+    new GoogleRestoreAdapter()
+};
+
+// Initialize the service
+private IInAppPurchaseService _purchaseService;
+
+private void Awake()
+{
+    _purchaseService = new InAppPurchaseService(_productCollection, _restoreAdapters);
+    _purchaseService.OnInitialized += OnInitialized;
+    _purchaseService.OnInitializeFailed += OnInitializeFailed;
+    _purchaseService.OnPurchased += OnPurchaseCompleted;
+    _purchaseService.OnPurchaseFailed += OnPurchaseFailed;
+    _purchaseService.OnPurchasesRestored += OnPurchasesRestored;
+    
+    _purchaseService.Initialize();
+}
+```
+
+### Making a Purchase
+
+```csharp
+public void PurchaseProduct(string productId)
+{
+    _purchaseService.Purchase(productId);
+}
+
+private void OnPurchaseCompleted(IPurchaseResponse response)
+{
+    Debug.Log($"Purchase successful: {response.ProductId}");
+    
+    // For non-consumable products, you might want to confirm the purchase
+    if (!response.IsAutoConfirm)
     {
-        [SerializeField] private ProductType _type;
-        [SerializeField] private string _productId;
-
-        public ProductType Type => _type;
-        public string ProductId => _productId;
-    }
-
-    [SerializeField] private ProductInfo[] _infos = Array.Empty<ProductInfo>();
-
-    private static IInAppService _service;
-
-    public static IInAppService Service => _service;
-
-    private Dictionary<ProductType, HashSet<string>> GetProducts()
-    {
-        var products = new Dictionary<ProductType, HashSet<string>>();
-        for (int i = _infos.Length - 1; i >= 0; i--)
-        {
-            ProductInfo productInfo = _infos[i];
-            if (!products.TryGetValue(productInfo.Type, out HashSet<string> productIds))
-            {
-                productIds = new HashSet<string>();
-                products.Add(productInfo.Type, productIds);
-            }
-
-            productIds.Add(productInfo.ProductId);
-            products[productInfo.Type] = productIds;
-        }
-
-        return products;
-    }
-
-    private void Awake()
-    {
-        if (Service != null)
-        {
-            Destroy(gameObject);
-            return;
-        }
-
-        var appleRestoreAdapter = new AppleRestoreAdapter();
-        var googleRestoreAdapter = new GoogleRestoreAdapter();
-        _service = new InAppService(new List<IRestoreAdapter>
-                {
-                        appleRestoreAdapter,
-                        googleRestoreAdapter,
-                });
-        _service.Initialize(GetProducts());
+        _purchaseService.ConfirmPendingPurchase(response);
     }
 }
 ```
 
-### Purchasing
+### Restoring Purchases
 
-Below is one of the possible options for making a purchase.
-
-Example:
 ```csharp
-internal sealed class PurchaseExample : IDisposable
+public void RestorePurchases()
 {
-    private const string ProductId = "Example_Product_Id";
+    _purchaseService.RestorePurchases();
+}
 
-    private readonly IInAppService _inAppService;
-
-    public PurchaseExample(IInAppService inAppService)
-    {
-        _inAppService = inAppService;
-    }
-
-    public void Initialize()
-    {
-        _inAppService.OnPurchased += InAppPurchasedCallback;
-    }
-
-    public void Purchase()
-    {
-        _inAppService.Purchase(ProductId);
-    }
-    
-    public void Dispose()
-    {
-        _inAppService.OnPurchased -= InAppPurchasedCallback;
-    }
-    
-    private void InAppPurchasedCallback(IPurchaseResponse response)
-    {
-        if (response.Product.definition.id != ProductId)
-        {
-            return;
-        }
-        
-        // some code...
-    }
+private void OnPurchasesRestored(bool success)
+{
+    Debug.Log(success ? "Purchases restored successfully" : "Failed to restore purchases");
 }
 ```
+
+## API Reference
+### `IInAppPurchaseService`
+
+#### Properties
+- `bool IsInitialized` - Indicates if the service is ready to process purchases
+
+#### Events
+- `event Action OnInitialized` - Triggered when the service is successfully initialized
+- `event Action<InitializationFailureException> OnInitializeFailed` - Triggered when initialization fails
+- `event Action<IPurchaseResponse> OnPurchased` - Triggered when a purchase is successful
+- `event Action<bool> OnPurchasesRestored` - Triggered when restore purchases operation completes
+- `event Action<IPurchaseResponse> OnPurchaseFailed` - Triggered when a purchase fails
+
+#### Methods
+- `void Initialize()` - Initializes the purchase service
+- `void Purchase(string productId, bool autoConfirm = false)` - Initiates a purchase
+- `decimal GetPrice(string productId)` - Gets the price of a product
+- `string GetStringCurrency(string productId)` - Gets the currency code for a product
+- `void ConfirmPendingPurchase(IPurchaseResponse response)` - Confirms a pending purchase
+- `bool TryGetSubscriptionInfo(string productId, out SubscriptionInfo subscriptionInfo)` - Gets subscription information
+- `void RestorePurchases()` - Restores previous purchases
+- `void Dispose()` - Cleans up resources
+
+### `ProductInfo`
+Represents an in-app product.
+
+#### Properties
+- `string Id` - The product's unique identifier
+- `ProductType Type` - The type of product (Consumable, NonConsumable, Subscription)
+- `IProductStoreId StoreId` - Platform-specific store identifiers
+
+### `ProductCollection`
+A collection of `ProductInfo` objects that can be configured in the Unity Editor.
+
+### `IPurchaseResponse`
+Contains information about a purchase operation.
+
+#### Properties
+- `Product Product` - The Unity IAP Product object
+- `string TransactionId` - The Transaction ID from `Product`
+- `string Receipt` - The Receipt from `Product`
+- `PurchaseStatus Status` - The Purchase Status (Success, Failure)
+- `bool IsAutoConfirm` - Indicates whether the purchase will be automatically confirmed by the system
+- `string ErrorMessage` - Messaga if Purchase Status is Failure
 
 ## License
-
-MIT
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.

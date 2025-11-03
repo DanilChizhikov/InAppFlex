@@ -1,19 +1,19 @@
 using System;
-using System.Collections.Generic;
 using UnityEngine.Purchasing;
 
-namespace DTech.InAppFlex.Abstraction
+namespace DTech.InAppFlex
 {
-    public interface IInAppService : IDisposable
+    public interface IInAppPurchaseService
     {
         event Action OnInitialized;
-        event Action<InitializationFailureReason> OnInitializedFailed;
-        event Action<bool> OnPurchasesRestored;
+        event Action<InitializationFailureException> OnInitializeFailed;
         event Action<IPurchaseResponse> OnPurchased;
+        event Action<bool> OnPurchasesRestored;
+        event Action<IPurchaseResponse> OnPurchaseFailed;
 
         bool IsInitialized { get; }
         
-        void Initialize(Dictionary<ProductType, HashSet<string>> products);
+        void Initialize();
         void Purchase(string productId, bool autoConfirm = false);
         decimal GetPrice(string productId);
         string GetStringCurrency(string productId);

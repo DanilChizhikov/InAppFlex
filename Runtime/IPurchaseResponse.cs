@@ -1,6 +1,6 @@
 using UnityEngine.Purchasing;
 
-namespace DTech.InAppFlex.Abstraction
+namespace DTech.InAppFlex
 {
     public interface IPurchaseResponse
     {
@@ -8,6 +8,7 @@ namespace DTech.InAppFlex.Abstraction
         string TransactionId { get; }
         string Receipt { get; }
         PurchaseStatus Status { get; }
+        bool IsAutoConfirm { get; }
         string ErrorMessage { get; }
     }
 }

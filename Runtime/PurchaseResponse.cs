@@ -1,25 +1,19 @@
-using DTech.InAppFlex.Abstraction;
 using UnityEngine.Purchasing;
 
-namespace DTech.InAppFlex.Runtime
+namespace DTech.InAppFlex
 {
     internal sealed class PurchaseResponse : IPurchaseResponse
     {
-        public Product Product { get; set; }
-        public string TransactionId { get; set; }
-        public string Receipt { get; set; }
+        public Product Product { get; }
+        public string TransactionId => Product.transactionID;
+        public string Receipt => Product.receipt;
         public PurchaseStatus Status { get; set; }
+        public bool IsAutoConfirm { get; set; }
         public string ErrorMessage { get; set; }
-        public bool CanConfirm { get; set; }
 
-        public IPurchaseResponse Clone() => new PurchaseResponse
-                {
-                        Product = Product,
-                        TransactionId = TransactionId,
-                        Receipt = Receipt,
-                        Status = Status,
-                        ErrorMessage = ErrorMessage,
-                        CanConfirm = CanConfirm,
-                };
+        public PurchaseResponse(Product product)
+        {
+            Product = product;
+        }
     }
 }
