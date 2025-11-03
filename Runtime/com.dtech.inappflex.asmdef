@@ -1,5 +1,5 @@
 {
-    "name": "InAppFlex",
+    "name": "com.dtech.inappflex",
     "rootNamespace": "DTech",
     "references": [
         "GUID:60bfecf5cb232594891bc622f40d6bed",

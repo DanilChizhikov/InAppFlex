@@ -1,8 +1,7 @@
 using System;
-using DTech.InAppFlex.Abstraction;
 using UnityEngine.Purchasing;
 
-namespace DTech.InAppFlex.Runtime
+namespace DTech.InAppFlex
 {
     public abstract class RestoreAdapter : IRestoreAdapter
     {

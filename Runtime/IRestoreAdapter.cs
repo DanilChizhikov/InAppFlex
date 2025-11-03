@@ -1,7 +1,7 @@
 using System;
 using UnityEngine.Purchasing;
 
-namespace DTech.InAppFlex.Abstraction
+namespace DTech.InAppFlex
 {
     public interface IRestoreAdapter
     {
