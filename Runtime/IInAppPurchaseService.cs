@@ -9,7 +9,7 @@ namespace DTech.InAppFlex
         event Action<InitializationFailureException> OnInitializeFailed;
         event Action<IPurchaseResponse> OnPurchased;
         event Action<bool> OnPurchasesRestored;
-        event Action<PurchaseFailedException> OnPurchaseFailed;
+        event Action<IPurchaseResponse> OnPurchaseFailed;
 
         bool IsInitialized { get; }
         

@@ -5,21 +5,26 @@ namespace DTech.InAppFlex
 {
 	public sealed class PurchaseFailedException : Exception
 	{
-		public string ProductId { get; }
+		public string ProductId => Product.definition.id;
 		public PurchaseFailureReason Reason { get; }
-		public string Message { get; }
+		public string ErrorMessage { get; }
+		
+		internal Product Product { get; }
 
-		internal PurchaseFailedException(string productId, PurchaseFailureReason reason) :
-			base($"Product: {productId}, PurchaseFailureReason: {reason}")
+		internal PurchaseFailedException(Product product, PurchaseFailureReason reason) :
+			base($"Product: {product.definition.id}, PurchaseFailureReason: {reason}")
 		{
-			ProductId = productId;
+			Product = product;
 			Reason = reason;
+			ErrorMessage = $"Product: {product.definition.id}, PurchaseFailureReason: {reason}";
 		}
 
-		internal PurchaseFailedException(string productId, PurchaseFailureReason reason, string message) :
-			base($"Product: {productId}, PurchaseFailureReason: {reason}, Message: {message}")
+		internal PurchaseFailedException(Product product, PurchaseFailureReason reason, string message) :
+			base($"Product: {product.definition.id}, PurchaseFailureReason: {reason}, Message: {message}")
 		{
-			
+			Product = product;
+			Reason = reason;
+			ErrorMessage = message;
 		}
 	}
 }

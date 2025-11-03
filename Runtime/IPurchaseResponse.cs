@@ -8,6 +8,7 @@ namespace DTech.InAppFlex
         string TransactionId { get; }
         string Receipt { get; }
         PurchaseStatus Status { get; }
+        bool IsAutoConfirm { get; }
         string ErrorMessage { get; }
     }
 }

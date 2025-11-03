@@ -12,29 +12,31 @@ namespace DTech.InAppFlex
         public event Action<InitializationFailureException> OnInitializeFailed;
         public event Action<IPurchaseResponse> OnPurchased;
         public event Action<bool> OnPurchasesRestored;
-        public event Action<PurchaseFailedException> OnPurchaseFailed;
+        public event Action<IPurchaseResponse> OnPurchaseFailed;
 
         private readonly IProductCollection _productCollection;
         private readonly DetailedStoreListener _storeListener;
         private readonly HashSet<IRestoreAdapter> _restoreAdapters;
-        private readonly Dictionary<string, Queue<PurchaseResponse>> _responseMap;
+        private readonly Queue<PurchaseQueueItem> _purchaseQueue;
         
         public bool IsInitialized { get; private set; }
         
         private IStoreController _storeController;
         private IExtensionProvider _extensionProvider;
         private bool _isInitializeProcessing;
+        private PurchaseQueueItem _currentItem;
+        private bool _isPurchaseProcessing;
 
         public InAppPurchaseService(IProductCollection productCollection, IEnumerable<IRestoreAdapter> restoreAdapters)
         {
             _productCollection = productCollection;
             _storeListener = new DetailedStoreListener(ProcessPurchase);
+            _restoreAdapters = new HashSet<IRestoreAdapter>(restoreAdapters);
+            _purchaseQueue = new Queue<PurchaseQueueItem>();
+            
             _storeListener.OnInitialized += InitializedHandler;
             _storeListener.OnInitializeFailed += InitializeFailedHandler;
             _storeListener.OnPurchaseFailed += PurchaseFailedHandler;
-            
-            _restoreAdapters = new HashSet<IRestoreAdapter>(restoreAdapters);
-            _responseMap = new Dictionary<string, Queue<PurchaseResponse>>();
         }
 
         public void Initialize()
@@ -80,19 +82,9 @@ namespace DTech.InAppFlex
             {
                 return;
             }
-
-            var response = new PurchaseResponse();
-            response.Product = product;
-            response.Status = PurchaseStatus.Processing;
-            response.CanConfirm = autoConfirm;
-            if (!_responseMap.TryGetValue(productId, out Queue<PurchaseResponse> responses))
-            {
-                responses = new Queue<PurchaseResponse>();
-                _responseMap.Add(productId, responses);
-            }
-
-            responses.Enqueue(response);
-            _storeController.InitiatePurchase(product);
+            
+            _purchaseQueue.Enqueue(new PurchaseQueueItem(product.definition.id, autoConfirm));
+            TryInitializePurchase();
         }
 
         public decimal GetPrice(string productId)
@@ -171,22 +163,49 @@ namespace DTech.InAppFlex
             _storeController = null;
             IsInitialized = false;
         }
+        
+        private void TryInitializePurchase()
+        {
+            if (_isInitializeProcessing)
+            {
+                return;
+            }
+
+            if (_purchaseQueue.TryDequeue(out PurchaseQueueItem item))
+            {
+                _currentItem = item;
+                _isPurchaseProcessing = true;
+                _storeController.InitiatePurchase(item.ProductId);
+            }
+        }
 
         private bool TryGetProduct(string id, out Product product)
         {
-            product = _storeController.products.WithID(id);
-            return product != null;
+            for (int i = 0; i < _productCollection.Count; i++)
+            {
+                IProductInfo productInfo = _productCollection[i];
+                if (productInfo.Id == id)
+                {
+                    product = _storeController.products.WithID(id);
+                    return product != null;
+                }
+            }
+
+            product = null;
+            return false;
         }
 
         private void CompletePurchase(PurchaseResponse response)
         {
-            IPurchaseResponse clone = response.Clone();
-            if (response.CanConfirm)
+            if (response.IsAutoConfirm)
             {
-                ConfirmPendingPurchase(clone);
+                ConfirmPendingPurchase(response);
             }
-            
-            OnPurchased?.Invoke(clone);
+
+            _currentItem = default;
+            _isPurchaseProcessing = false;
+            OnPurchased?.Invoke(response);
+            TryInitializePurchase();
         }
         
         private void RestorePurchasesCallback(bool result, string errorMessage)
@@ -197,39 +216,25 @@ namespace DTech.InAppFlex
             }
             else
             {
-                Debug.LogError($"<color=red>[{nameof(InAppPurchaseService)}]</color> Restoring failed! Message: {errorMessage}");
+                Debug.LogError($"[{nameof(InAppPurchaseService)}] Restoring failed! Message: {errorMessage}");
             }
 
             OnPurchasesRestored?.Invoke(result);
-        }
-
-        private bool TryGetResponse(string productId, out PurchaseResponse response)
-        {
-            response = new PurchaseResponse
-            {
-                Product = TryGetProduct(productId, out Product product)? product : null,
-                Status = PurchaseStatus.Processing,
-            };
-
-            return _responseMap.TryGetValue(productId, out Queue<PurchaseResponse> responses) && responses.TryDequeue(out response);
         }
         
         private PurchaseProcessingResult ProcessPurchase(PurchaseEventArgs purchaseEvent)
         {
             PurchaseProcessingResult result = PurchaseProcessingResult.Pending;
-            if (!TryGetResponse(purchaseEvent.purchasedProduct.definition.id, out PurchaseResponse response))
+            if (_currentItem.ProductId == purchaseEvent.purchasedProduct.definition.id)
             {
-                Debug.LogError($"[{nameof(InAppPurchaseService)}] No response for product: {purchaseEvent.purchasedProduct.definition.id}!");
+                var response = new PurchaseResponse(purchaseEvent.purchasedProduct)
+                {
+                    Status = PurchaseStatus.Success,
+                    IsAutoConfirm = _currentItem.AutoConfirm,
+                };
+                
+                CompletePurchase(response);
                 result = PurchaseProcessingResult.Complete;
-            }
-
-            if (result != PurchaseProcessingResult.Complete)
-            {
-                response.Product = purchaseEvent.purchasedProduct;
-                response.TransactionId = purchaseEvent.purchasedProduct.transactionID;
-                response.Receipt = purchaseEvent.purchasedProduct.receipt;
-                response.Status = PurchaseStatus.Success;
-                CompletePurchase( response );
             }
 
             return result;
@@ -253,15 +258,20 @@ namespace DTech.InAppFlex
         
         private void PurchaseFailedHandler(PurchaseFailedException exception)
         {
-            if (TryGetResponse(exception.ProductId, out PurchaseResponse response))
+            var response = new PurchaseResponse(exception.Product)
             {
-                response.Product = response.Product;
-                response.ErrorMessage = exception.ToString();
-                response.Status = PurchaseStatus.Failure;
-                CompletePurchase(response);
-            }
+                Status = PurchaseStatus.Failure,
+                ErrorMessage = exception.ErrorMessage,
+                IsAutoConfirm = _currentItem.AutoConfirm,
+            };
             
-            OnPurchaseFailed?.Invoke(exception);
+            OnPurchaseFailed?.Invoke(response);
+            if (_isPurchaseProcessing && exception.Product.definition.id == _currentItem.ProductId)
+            {
+                _currentItem = default;
+                _isPurchaseProcessing = false;
+                TryInitializePurchase();
+            }
         }
     }
 }

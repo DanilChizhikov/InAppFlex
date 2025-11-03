@@ -1,9 +1,8 @@
 namespace DTech.InAppFlex
 {
-    public enum PurchaseStatus
+    public enum PurchaseStatus : byte
     {
-        Processing = 0,
-        Success = 1,
-        Failure = 2,
+        Success = 0,
+        Failure = 1,
     }
 }

@@ -44,14 +44,14 @@ namespace DTech.InAppFlex
 
 		void IStoreListener.OnPurchaseFailed(Product product, PurchaseFailureReason failureReason)
 		{
-			var exception = new PurchaseFailedException(product.definition.id, failureReason);
+			var exception = new PurchaseFailedException(product, failureReason);
 			Debug.LogException(exception);
 			OnPurchaseFailed?.Invoke(exception);
 		}
 
 		void IDetailedStoreListener.OnPurchaseFailed(Product product, PurchaseFailureDescription failureDescription)
 		{
-			var exception = new PurchaseFailedException(product.definition.id, failureDescription.reason, failureDescription.message);
+			var exception = new PurchaseFailedException(product, failureDescription.reason, failureDescription.message);
 			Debug.LogException(exception);
 			OnPurchaseFailed?.Invoke(exception);
 		}
