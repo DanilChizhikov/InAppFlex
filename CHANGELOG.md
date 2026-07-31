@@ -17,6 +17,9 @@ Migration to Unity IAP v5.
 - `InitializeAsync`, `PurchaseAsync` and `RestorePurchasesAsync` as the only entry points, the events are still raised for observers.
 - `IPurchaseResponse.ProductId`.
 - `Dispose` completes pending operations instead of leaving their tasks hanging.
+- Deferred purchases (iOS Ask-to-Buy, Google Play deferred payments) are handled instead of being dropped, reported through `OnPurchaseDeferred` for a live deferral and once for every deferred order that is still open when purchases are fetched.
+- `PurchaseStatus.Deferred`. `PurchaseAsync` resolves with it right away, the final outcome arrives through `OnPurchased` or `OnPurchaseFailed`. `autoConfirm` is kept and applied when the purchase is approved.
+- `DeferredProductIds` and `IsPurchaseDeferred(string productId)` to poll what is waiting for approval.
 
 ### Fixed
 - Products were registered by `StoreId` but resolved by `Id`, so every product with different `Id` and `StoreId` was unpurchasable.

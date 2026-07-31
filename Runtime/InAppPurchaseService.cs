@@ -16,12 +16,15 @@ namespace DTech.InAppFlex
         public event Action<IPurchaseResponse> OnPurchased;
         public event Action<bool> OnPurchasesRestored;
         public event Action<IPurchaseResponse> OnPurchaseFailed;
+        public event Action<IPurchaseResponse> OnPurchaseDeferred;
 
         private readonly IProductCollection _productCollection;
         private readonly Dictionary<string, bool> _autoConfirmByProductId;
         private readonly Dictionary<string, CancellableCompletion<IPurchaseResponse>> _purchaseCompletionByProductId;
+        private readonly HashSet<string> _deferredProductIds;
 
         public bool IsInitialized { get; private set; }
+        public IReadOnlyCollection<string> DeferredProductIds => _deferredProductIds;
 
         private StoreController _storeController;
         private CancellableCompletion<bool> _initializeCompletion;
@@ -32,6 +35,7 @@ namespace DTech.InAppFlex
             _productCollection = productCollection;
             _autoConfirmByProductId = new Dictionary<string, bool>();
             _purchaseCompletionByProductId = new Dictionary<string, CancellableCompletion<IPurchaseResponse>>();
+            _deferredProductIds = new HashSet<string>();
         }
 
         public Task<bool> InitializeAsync(CancellationToken token = default)
@@ -128,6 +132,8 @@ namespace DTech.InAppFlex
             _storeController.ConfirmPurchase(pendingOrder);
         }
 
+        public bool IsPurchaseDeferred(string productId) => _deferredProductIds.Contains(productId);
+
         public bool TryGetSubscriptionInfo(string productId, out SubscriptionInfo subscriptionInfo)
         {
             subscriptionInfo = null;
@@ -188,6 +194,7 @@ namespace DTech.InAppFlex
             }
 
             _autoConfirmByProductId.Clear();
+            _deferredProductIds.Clear();
             IsInitialized = false;
         }
 
@@ -202,6 +209,7 @@ namespace DTech.InAppFlex
             _storeController.OnPurchasePending += PurchasePendingHandler;
             _storeController.OnPurchaseConfirmed += PurchaseConfirmedHandler;
             _storeController.OnPurchaseFailed += PurchaseFailedHandler;
+            _storeController.OnPurchaseDeferred += PurchaseDeferredHandler;
         }
 
         private void Unsubscribe()
@@ -215,6 +223,7 @@ namespace DTech.InAppFlex
             _storeController.OnPurchasePending -= PurchasePendingHandler;
             _storeController.OnPurchaseConfirmed -= PurchaseConfirmedHandler;
             _storeController.OnPurchaseFailed -= PurchaseFailedHandler;
+            _storeController.OnPurchaseDeferred -= PurchaseDeferredHandler;
         }
 
         private async void ConnectAsync()
@@ -392,6 +401,26 @@ namespace DTech.InAppFlex
                       $"Confirmed: {orders.ConfirmedOrders.Count}, " +
                       $"Pending: {orders.PendingOrders.Count}, " +
                       $"Deferred: {orders.DeferredOrders.Count}");
+
+            IReadOnlyList<DeferredOrder> deferredOrders = orders.DeferredOrders;
+            for (int i = 0; i < deferredOrders.Count; i++)
+            {
+                DeferredOrder order = deferredOrders[i];
+                Product product = order.CartOrdered?.Items()?.FirstOrDefault()?.Product;
+                if (product == null)
+                {
+                    continue;
+                }
+
+                bool autoConfirm = _autoConfirmByProductId.TryGetValue(product.definition.id, out bool value) && value;
+                var response = new PurchaseResponse(order, product)
+                {
+                    Status = PurchaseStatus.Deferred,
+                    IsAutoConfirm = autoConfirm,
+                };
+
+                RaiseDeferred(response);
+            }
         }
 
         private void PurchasesFetchFailedHandler(PurchasesFetchFailureDescription description)
@@ -413,6 +442,7 @@ namespace DTech.InAppFlex
             string productId = product.definition.id;
             bool autoConfirm = _autoConfirmByProductId.TryGetValue(productId, out bool value) && value;
             _autoConfirmByProductId.Remove(productId);
+            _deferredProductIds.Remove(productId);
             var response = new PurchaseResponse(order, product)
             {
                 Status = PurchaseStatus.Success,
@@ -448,6 +478,7 @@ namespace DTech.InAppFlex
             if (productId != null)
             {
                 _autoConfirmByProductId.Remove(productId);
+                _deferredProductIds.Remove(productId);
             }
 
             var response = new PurchaseResponse(order, exception.Product)
@@ -457,6 +488,38 @@ namespace DTech.InAppFlex
             };
 
             OnPurchaseFailed?.Invoke(response);
+            CompletePurchase(productId, response);
+        }
+
+        private void PurchaseDeferredHandler(DeferredOrder order)
+        {
+            Product product = order.CartOrdered?.Items()?.FirstOrDefault()?.Product;
+            if (product == null)
+            {
+                Debug.LogError($"[{nameof(InAppPurchaseService)}] Deferred order without any product!");
+                return;
+            }
+
+            string productId = product.definition.id;
+            bool autoConfirm = _autoConfirmByProductId.TryGetValue(productId, out bool value) && value;
+            var response = new PurchaseResponse(order, product)
+            {
+                Status = PurchaseStatus.Deferred,
+                IsAutoConfirm = autoConfirm,
+            };
+
+            RaiseDeferred(response);
+        }
+
+        private void RaiseDeferred(PurchaseResponse response)
+        {
+            string productId = response.ProductId;
+            if (_deferredProductIds.Add(productId))
+            {
+                Debug.Log($"[{nameof(InAppPurchaseService)}] Purchase of product: {productId} is deferred!");
+                OnPurchaseDeferred?.Invoke(response);
+            }
+
             CompletePurchase(productId, response);
         }
     }

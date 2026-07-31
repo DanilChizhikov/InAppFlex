@@ -16,6 +16,7 @@ which provides functionality for handling in-app purchases within the Unity game
   - [Setting up Products](#Setting-up-Products)
   - [Initializing the Service](#Initializing-the-Service)
   - [Making a Purchase](#Making-a-Purchase)
+  - [Deferred Purchases](#Deferred-Purchases)
   - [Restoring Purchases](#Restoring-Purchases)
   - [Store Failures](#Store-Failures)
 - [API Reference](#api-reference)
@@ -55,6 +56,7 @@ For example `https://github.com/DanilChizhikov/InAppFlex.git#v3.0.0`.
 - 🔄 **Purchase Restoration**: Built-in support for restoring purchases across devices
 - 🔄 **Asynchronous Operations**: Non-blocking purchase flow with event-based callbacks and `Task` wrappers
 - 🏷️ **Product Management**: Easy management of in-app products with platform-specific store IDs
+- ⏳ **Deferred Purchases**: Ask-to-Buy and Google Play deferred payments are reported instead of being dropped
 - 🔍 **Subscription Support**
 - 💰 **Price Information**: Get localized prices and currency codes
 - 🛡️ **Error Handling**: Comprehensive error handling and purchase validation
@@ -129,7 +131,49 @@ IPurchaseResponse response = await _purchaseService.PurchaseAsync(productId, aut
 
 `PurchaseAsync` resolves with the same response on success and on failure, and returns `null` when the
 purchase could not even be started, for example when the service is not initialized or the product is
-missing from the `ProductCollection`.
+missing from the `ProductCollection`. It can also resolve with `PurchaseStatus.Deferred`, see
+[Deferred Purchases](#Deferred-Purchases).
+
+### Deferred Purchases
+
+A purchase can be deferred by the store: Ask-to-Buy on iOS waits for parental approval, Google Play waits for
+a delayed payment method. Such a purchase is not paid for yet, so the content must **not** be granted:
+
+```csharp
+_purchaseService.OnPurchaseDeferred += OnPurchaseDeferred;
+
+private void OnPurchaseDeferred(IPurchaseResponse response)
+{
+    // Do not grant anything here, only show the "waiting for approval" state
+    Debug.Log($"Purchase of {response.ProductId} is waiting for approval");
+}
+```
+
+`PurchaseAsync` resolves immediately with `Status == PurchaseStatus.Deferred`, so the awaited call never
+hangs and the product may be purchased again. The final outcome arrives later through the events:
+`OnPurchased` when the purchase is approved, `OnPurchaseFailed` when it is rejected. `autoConfirm` passed to
+the original `PurchaseAsync` is remembered and still applied when the purchase is approved.
+
+`ConfirmPendingPurchase` does nothing for a deferred response - a deferred order has no pending order to
+confirm.
+
+The current state can also be polled, which is useful for UI that is built after the event was raised:
+
+```csharp
+if (_purchaseService.IsPurchaseDeferred(productId))
+{
+    ShowPendingBadge(productId);
+}
+
+foreach (string deferredProductId in _purchaseService.DeferredProductIds)
+{
+    ShowPendingBadge(deferredProductId);
+}
+```
+
+Deferred orders left over from a previous session are reported the same way once purchases are fetched, so
+each deferred purchase raises `OnPurchaseDeferred` once and stays in `DeferredProductIds` until it is
+approved or rejected.
 
 ### Restoring Purchases
 
@@ -193,6 +237,7 @@ the store responds, and `IsInitialized` still becomes `true` if the initializati
 
 #### Properties
 - `bool IsInitialized` - Indicates if the service is ready to process purchases
+- `IReadOnlyCollection<string> DeferredProductIds` - Ids of the products whose purchase is currently deferred
 
 #### Events
 - `event Action OnInitialized` - Triggered when the service is successfully initialized
@@ -201,6 +246,7 @@ the store responds, and `IsInitialized` still becomes `true` if the initializati
 - `event Action<IPurchaseResponse> OnPurchased` - Triggered when a purchase is successful
 - `event Action<bool> OnPurchasesRestored` - Triggered when restore purchases operation completes
 - `event Action<IPurchaseResponse> OnPurchaseFailed` - Triggered when a purchase fails
+- `event Action<IPurchaseResponse> OnPurchaseDeferred` - Triggered when a purchase is deferred and waits for approval
 
 #### Methods
 - `Task<bool> InitializeAsync(CancellationToken token = default)` - Initializes the purchase service, returns whether the service is ready
@@ -208,6 +254,7 @@ the store responds, and `IsInitialized` still becomes `true` if the initializati
 - `decimal GetPrice(string productId)` - Gets the price of a product
 - `string GetStringCurrency(string productId)` - Gets the currency code for a product
 - `void ConfirmPendingPurchase(IPurchaseResponse response)` - Confirms a pending purchase
+- `bool IsPurchaseDeferred(string productId)` - Indicates whether the purchase of the product is currently deferred
 - `bool TryGetSubscriptionInfo(string productId, out SubscriptionInfo subscriptionInfo)` - Gets subscription information of an already fetched purchase
 - `Task<bool> RestorePurchasesAsync(CancellationToken token = default)` - Restores previous purchases
 - `void Dispose()` - Cleans up resources
@@ -231,7 +278,7 @@ Contains information about a purchase operation.
 - `string ProductId` - The Product ID from `Product`
 - `string TransactionId` - The Transaction ID from the `Order`
 - `string Receipt` - The Receipt from the `Order`
-- `PurchaseStatus Status` - The Purchase Status (Success, Failure)
+- `PurchaseStatus Status` - The Purchase Status (Success, Failure, Deferred)
 - `bool IsAutoConfirm` - Indicates whether the purchase will be automatically confirmed by the system
 - `string ErrorMessage` - Messaga if Purchase Status is Failure
 
