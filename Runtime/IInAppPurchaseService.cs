@@ -1,4 +1,6 @@
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine.Purchasing;
 
 namespace DTech.InAppFlex
@@ -7,18 +9,19 @@ namespace DTech.InAppFlex
     {
         event Action OnInitialized;
         event Action<InitializationFailureException> OnInitializeFailed;
+        event Action<StoreFailureException> OnStoreFailed;
         event Action<IPurchaseResponse> OnPurchased;
         event Action<bool> OnPurchasesRestored;
         event Action<IPurchaseResponse> OnPurchaseFailed;
 
         bool IsInitialized { get; }
         
-        void Initialize();
-        void Purchase(string productId, bool autoConfirm = false);
+        Task<bool> InitializeAsync(CancellationToken token = default);
+        Task<IPurchaseResponse> PurchaseAsync(string productId, bool autoConfirm = false, CancellationToken token = default);
         decimal GetPrice(string productId);
         string GetStringCurrency(string productId);
         void ConfirmPendingPurchase(IPurchaseResponse response);
         bool TryGetSubscriptionInfo(string productId, out SubscriptionInfo subscriptionInfo);
-        void RestorePurchases();
+        Task<bool> RestorePurchasesAsync(CancellationToken token = default);
     }
 }

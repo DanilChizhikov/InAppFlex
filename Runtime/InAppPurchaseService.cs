@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Purchasing;
-using UnityEngine.Purchasing.Extension;
 
 namespace DTech.InAppFlex
 {
@@ -10,81 +12,91 @@ namespace DTech.InAppFlex
     {
         public event Action OnInitialized;
         public event Action<InitializationFailureException> OnInitializeFailed;
+        public event Action<StoreFailureException> OnStoreFailed;
         public event Action<IPurchaseResponse> OnPurchased;
         public event Action<bool> OnPurchasesRestored;
         public event Action<IPurchaseResponse> OnPurchaseFailed;
 
         private readonly IProductCollection _productCollection;
-        private readonly DetailedStoreListener _storeListener;
-        private readonly HashSet<IRestoreAdapter> _restoreAdapters;
-        private readonly Queue<PurchaseQueueItem> _purchaseQueue;
-        
-        public bool IsInitialized { get; private set; }
-        
-        private IStoreController _storeController;
-        private IExtensionProvider _extensionProvider;
-        private bool _isInitializeProcessing;
-        private PurchaseQueueItem _currentItem;
-        private bool _isPurchaseProcessing;
+        private readonly Dictionary<string, bool> _autoConfirmByProductId;
+        private readonly Dictionary<string, CancellableCompletion<IPurchaseResponse>> _purchaseCompletionByProductId;
 
-        public InAppPurchaseService(IProductCollection productCollection, IEnumerable<IRestoreAdapter> restoreAdapters)
+        public bool IsInitialized { get; private set; }
+
+        private StoreController _storeController;
+        private CancellableCompletion<bool> _initializeCompletion;
+        private CancellableCompletion<bool> _restoreCompletion;
+
+        public InAppPurchaseService(IProductCollection productCollection)
         {
             _productCollection = productCollection;
-            _storeListener = new DetailedStoreListener(ProcessPurchase);
-            _restoreAdapters = new HashSet<IRestoreAdapter>(restoreAdapters);
-            _purchaseQueue = new Queue<PurchaseQueueItem>();
-            
-            _storeListener.OnInitialized += InitializedHandler;
-            _storeListener.OnInitializeFailed += InitializeFailedHandler;
-            _storeListener.OnPurchaseFailed += PurchaseFailedHandler;
+            _autoConfirmByProductId = new Dictionary<string, bool>();
+            _purchaseCompletionByProductId = new Dictionary<string, CancellableCompletion<IPurchaseResponse>>();
         }
 
-        public void Initialize()
+        public Task<bool> InitializeAsync(CancellationToken token = default)
         {
-            if (IsInitialized || _isInitializeProcessing)
+            if (IsInitialized)
             {
-                return;
+                return Task.FromResult(true);
+            }
+
+            if (_initializeCompletion != null)
+            {
+                throw new InvalidOperationException($"[{nameof(InAppPurchaseService)}] Initialization is already in progress!");
+            }
+
+            if (token.IsCancellationRequested)
+            {
+                return Task.FromCanceled<bool>(token);
             }
 
             if (_productCollection.Count <= 0)
             {
                 Debug.LogWarning($"[{nameof(InAppPurchaseService)}] No products were been added!");
-                return;
+                return Task.FromResult(false);
             }
 
-            IPurchasingModule purchasingModule = StandardPurchasingModule.Instance();
-            ConfigurationBuilder builder = ConfigurationBuilder.Instance(purchasingModule);
-            for (int i = 0; i < _productCollection.Count; i++)
-            {
-                IProductInfo productInfo = _productCollection[i];
-                builder.AddProduct(productInfo.StoreId, productInfo.Type);
-                Debug.Log($"[{nameof(InAppPurchaseService)}] Product: {productInfo.StoreId} was been added!");
-            }
-            
+            _initializeCompletion = new CancellableCompletion<bool>(token);
+            _storeController = UnityIAPServices.StoreController();
+            Subscribe();
+
             Debug.Log($"[{nameof(InAppPurchaseService)}] Begin initialize purchasing...");
-            UnityPurchasing.Initialize(_storeListener, builder);
-            _isInitializeProcessing = true;
+            ConnectAsync();
+
+            return _initializeCompletion.Task;
         }
 
-        public void Purchase(string productId, bool autoConfirm = false)
+        public Task<IPurchaseResponse> PurchaseAsync(string productId, bool autoConfirm = false,
+                CancellationToken token = default)
         {
             if (!IsInitialized)
             {
-                return;
+                return Task.FromResult<IPurchaseResponse>(null);
             }
 
-            if (!TryGetProduct(productId, out Product product))
+            if (_purchaseCompletionByProductId.ContainsKey(productId))
             {
-                return;
+                throw new InvalidOperationException(
+                        $"[{nameof(InAppPurchaseService)}] Purchase of product: {productId} is already in progress!");
             }
 
-            if (!product.availableToPurchase)
+            if (token.IsCancellationRequested)
             {
-                return;
+                return Task.FromCanceled<IPurchaseResponse>(token);
+            }
+
+            if (!TryGetProduct(productId, out Product product) || !product.availableToPurchase)
+            {
+                return Task.FromResult<IPurchaseResponse>(null);
             }
             
-            _purchaseQueue.Enqueue(new PurchaseQueueItem(product.definition.id, autoConfirm));
-            TryInitializePurchase();
+            var completion = new CancellableCompletion<IPurchaseResponse>(token);
+            _purchaseCompletionByProductId.Add(product.definition.id, completion);
+            _autoConfirmByProductId[product.definition.id] = autoConfirm;
+            _storeController.PurchaseProduct(product);
+
+            return completion.Task;
         }
 
         public decimal GetPrice(string productId)
@@ -99,179 +111,353 @@ namespace DTech.InAppFlex
         public string GetStringCurrency(string productId) =>
                 TryGetProduct(productId, out Product product) ? product.metadata.isoCurrencyCode : "ERROR";
 
-        public void ConfirmPendingPurchase(IPurchaseResponse response) => _storeController.ConfirmPendingPurchase(response.Product);
+        public void ConfirmPendingPurchase(IPurchaseResponse response)
+        {
+            if (!IsInitialized || response is not PurchaseResponse purchaseResponse)
+            {
+                return;
+            }
+
+            PendingOrder pendingOrder = purchaseResponse.PendingOrder;
+            if (pendingOrder == null)
+            {
+                Debug.LogWarning($"[{nameof(InAppPurchaseService)}] Order of product: {response.ProductId} is not pending!");
+                return;
+            }
+
+            _storeController.ConfirmPurchase(pendingOrder);
+        }
 
         public bool TryGetSubscriptionInfo(string productId, out SubscriptionInfo subscriptionInfo)
         {
             subscriptionInfo = null;
-            if (!IsInitialized)
+            if (!IsInitialized || !TryGetProductInfo(productId, out IProductInfo productInfo))
             {
                 return false;
             }
 
-            Product[] products = _storeController.products.all;
-            for (int i = 0; i < products.Length; i++)
+            foreach (Order order in _storeController.GetPurchases())
             {
-                Product item = products[i];
-                if (item.definition.id != productId || !item.hasReceipt)
+                List<IPurchasedProductInfo> purchasedProducts = order.Info.PurchasedProductInfo;
+                for (int i = 0; i < purchasedProducts.Count; i++)
                 {
-                    continue;
-                }
+                    IPurchasedProductInfo purchasedProduct = purchasedProducts[i];
+                    if (purchasedProduct.productId != productInfo.StoreId || purchasedProduct.subscriptionInfo == null)
+                    {
+                        continue;
+                    }
 
-                var subscriptionManager = new SubscriptionManager(item, null);
-                try
-                {
-                    subscriptionInfo = subscriptionManager.getSubscriptionInfo();
-                    return subscriptionInfo != null;
-                }
-                catch
-                {
-                    Debug.LogError($"[{nameof(InAppPurchaseService)}] No receipt for product: {productId}");
+                    subscriptionInfo = purchasedProduct.subscriptionInfo;
+                    return true;
                 }
             }
 
             return false;
         }
 
-        public void RestorePurchases()
+        public Task<bool> RestorePurchasesAsync(CancellationToken token = default)
         {
             if (!IsInitialized)
             {
-                return;
+                return Task.FromResult(false);
             }
 
-            foreach (var adapter in _restoreAdapters)
+            if (_restoreCompletion != null)
             {
-                if (adapter.IsAvailable)
-                {
-                    adapter.RestorePurchases(_extensionProvider, RestorePurchasesCallback);
-                    break;
-                }
+                throw new InvalidOperationException($"[{nameof(InAppPurchaseService)}] Restoring is already in progress!");
             }
+
+            if (token.IsCancellationRequested)
+            {
+                return Task.FromCanceled<bool>(token);
+            }
+
+            _restoreCompletion = new CancellableCompletion<bool>(token);
+            _storeController.RestoreTransactions(RestorePurchasesCallback);
+
+            return _restoreCompletion.Task;
         }
 
         public void Dispose()
         {
-            if (!IsInitialized)
+            CancelPendingOperations();
+            if (_storeController != null)
             {
-                return;
-            }
-            
-            _storeListener.OnInitialized -= InitializedHandler;
-            _storeListener.OnInitializeFailed -= InitializeFailedHandler;
-            _storeListener.OnPurchaseFailed -= PurchaseFailedHandler;
-            _storeController = null;
-            IsInitialized = false;
-        }
-        
-        private void TryInitializePurchase()
-        {
-            if (_isInitializeProcessing)
-            {
-                return;
+                Unsubscribe();
+                _storeController = null;
             }
 
-            if (_purchaseQueue.TryDequeue(out PurchaseQueueItem item))
+            _autoConfirmByProductId.Clear();
+            IsInitialized = false;
+        }
+
+        private void Subscribe()
+        {
+            _storeController.OnStoreConnected += StoreConnectedHandler;
+            _storeController.OnStoreDisconnected += StoreDisconnectedHandler;
+            _storeController.OnProductsFetched += ProductsFetchedHandler;
+            _storeController.OnProductsFetchFailed += ProductsFetchFailedHandler;
+            _storeController.OnPurchasesFetched += PurchasesFetchedHandler;
+            _storeController.OnPurchasesFetchFailed += PurchasesFetchFailedHandler;
+            _storeController.OnPurchasePending += PurchasePendingHandler;
+            _storeController.OnPurchaseConfirmed += PurchaseConfirmedHandler;
+            _storeController.OnPurchaseFailed += PurchaseFailedHandler;
+        }
+
+        private void Unsubscribe()
+        {
+            _storeController.OnStoreConnected -= StoreConnectedHandler;
+            _storeController.OnStoreDisconnected -= StoreDisconnectedHandler;
+            _storeController.OnProductsFetched -= ProductsFetchedHandler;
+            _storeController.OnProductsFetchFailed -= ProductsFetchFailedHandler;
+            _storeController.OnPurchasesFetched -= PurchasesFetchedHandler;
+            _storeController.OnPurchasesFetchFailed -= PurchasesFetchFailedHandler;
+            _storeController.OnPurchasePending -= PurchasePendingHandler;
+            _storeController.OnPurchaseConfirmed -= PurchaseConfirmedHandler;
+            _storeController.OnPurchaseFailed -= PurchaseFailedHandler;
+        }
+
+        private async void ConnectAsync()
+        {
+            try
             {
-                _currentItem = item;
-                _isPurchaseProcessing = true;
-                _storeController.InitiatePurchase(item.ProductId);
+                await _storeController.Connect();
             }
+            catch (Exception exception)
+            {
+                InitializeFailed(new InitializationFailureException(exception));
+            }
+        }
+
+        private List<ProductDefinition> GetProductDefinitions()
+        {
+            var definitions = new List<ProductDefinition>(_productCollection.Count);
+            for (int i = 0; i < _productCollection.Count; i++)
+            {
+                IProductInfo productInfo = _productCollection[i];
+                definitions.Add(new ProductDefinition(productInfo.Id, productInfo.StoreId, productInfo.Type));
+                Debug.Log($"[{nameof(InAppPurchaseService)}] Product: {productInfo.StoreId} was been added!");
+            }
+
+            return definitions;
+        }
+
+        private bool TryGetProductInfo(string id, out IProductInfo productInfo)
+        {
+            for (int i = 0; i < _productCollection.Count; i++)
+            {
+                IProductInfo item = _productCollection[i];
+                if (item.Id == id)
+                {
+                    productInfo = item;
+                    return true;
+                }
+            }
+
+            productInfo = null;
+            return false;
         }
 
         private bool TryGetProduct(string id, out Product product)
         {
-            for (int i = 0; i < _productCollection.Count; i++)
-            {
-                IProductInfo productInfo = _productCollection[i];
-                if (productInfo.Id == id)
-                {
-                    product = _storeController.products.WithID(id);
-                    return product != null;
-                }
-            }
-
             product = null;
-            return false;
-        }
-
-        private void CompletePurchase(PurchaseResponse response)
-        {
-            if (response.IsAutoConfirm)
+            if (_storeController == null || !TryGetProductInfo(id, out _))
             {
-                ConfirmPendingPurchase(response);
+                return false;
             }
 
-            _currentItem = default;
-            _isPurchaseProcessing = false;
-            OnPurchased?.Invoke(response);
-            TryInitializePurchase();
+            product = _storeController.GetProductById(id);
+            return product != null;
         }
-        
+
+        private void InitializeCompleted()
+        {
+            IsInitialized = true;
+            CancellableCompletion<bool> completion = _initializeCompletion;
+            _initializeCompletion = null;
+            Debug.Log($"[{nameof(InAppPurchaseService)}] Purchasing was been initialized!");
+            OnInitialized?.Invoke();
+            completion?.TrySetResult(true);
+        }
+
+        private void InitializeFailed(InitializationFailureException exception)
+        {
+            Debug.LogException(exception);
+            IsInitialized = false;
+            CancellableCompletion<bool> completion = _initializeCompletion;
+            _initializeCompletion = null;
+            OnInitializeFailed?.Invoke(exception);
+            completion?.TrySetResult(false);
+        }
+
+        private void CompletePurchase(string productId, IPurchaseResponse response)
+        {
+            if (productId == null ||
+                !_purchaseCompletionByProductId.Remove(productId, out CancellableCompletion<IPurchaseResponse> completion))
+            {
+                return;
+            }
+
+            completion.TrySetResult(response);
+        }
+
+        private void CancelPendingOperations()
+        {
+            CancellableCompletion<bool> initializeCompletion = _initializeCompletion;
+            _initializeCompletion = null;
+            initializeCompletion?.TrySetResult(false);
+
+            CancellableCompletion<bool> restoreCompletion = _restoreCompletion;
+            _restoreCompletion = null;
+            restoreCompletion?.TrySetResult(false);
+
+            foreach (CancellableCompletion<IPurchaseResponse> completion in _purchaseCompletionByProductId.Values)
+            {
+                completion.TrySetResult(null);
+            }
+
+            _purchaseCompletionByProductId.Clear();
+        }
+
         private void RestorePurchasesCallback(bool result, string errorMessage)
         {
+            StoreFailureException exception = null;
             if (result)
             {
                 Debug.Log($"[{nameof(InAppPurchaseService)}] Restoring successful!");
             }
             else
             {
-                Debug.LogError($"[{nameof(InAppPurchaseService)}] Restoring failed! Message: {errorMessage}");
+                exception = new StoreFailureException(errorMessage);
+                Debug.LogException(exception);
+            }
+
+            CancellableCompletion<bool> completion = _restoreCompletion;
+            _restoreCompletion = null;
+            if (exception != null)
+            {
+                OnStoreFailed?.Invoke(exception);
             }
 
             OnPurchasesRestored?.Invoke(result);
+            completion?.TrySetResult(result);
         }
-        
-        private PurchaseProcessingResult ProcessPurchase(PurchaseEventArgs purchaseEvent)
+
+        private void StoreConnectedHandler()
         {
-            PurchaseProcessingResult result = PurchaseProcessingResult.Pending;
-            if (_currentItem.ProductId == purchaseEvent.purchasedProduct.definition.id)
+            Debug.Log($"[{nameof(InAppPurchaseService)}] Store was been connected!");
+            _storeController.FetchProducts(GetProductDefinitions());
+        }
+
+        private void StoreDisconnectedHandler(StoreConnectionFailureDescription description)
+        {
+            if (_initializeCompletion != null)
             {
-                var response = new PurchaseResponse(purchaseEvent.purchasedProduct)
-                {
-                    Status = PurchaseStatus.Success,
-                    IsAutoConfirm = _currentItem.AutoConfirm,
-                };
-                
-                CompletePurchase(response);
-                result = PurchaseProcessingResult.Complete;
+                InitializeFailed(new InitializationFailureException(description));
+                return;
             }
 
-            return result;
+            var exception = new StoreFailureException(description);
+            Debug.LogException(exception);
+            OnStoreFailed?.Invoke(exception);
         }
-        
-        private void InitializedHandler(IStoreController controller, IExtensionProvider extensions)
+
+        private void ProductsFetchedHandler(List<Product> products)
         {
-            _storeController = controller;
-            _extensionProvider = extensions;
-            IsInitialized = true;
-            OnInitialized?.Invoke();
-            Debug.Log("Purchasing was been initialized!");
+            Debug.Log($"[{nameof(InAppPurchaseService)}] Products was been fetched! Count: {products.Count}");
+            if (_initializeCompletion != null)
+            {
+                InitializeCompleted();
+            }
+            
+            _storeController.FetchPurchases();
         }
-        
-        private void InitializeFailedHandler(InitializationFailureException exception)
+
+        private void ProductsFetchFailedHandler(ProductFetchFailed failure)
         {
-            _isInitializeProcessing = false;
-            IsInitialized = false;
-            OnInitializeFailed?.Invoke(exception);
+            if (_initializeCompletion != null)
+            {
+                InitializeFailed(new InitializationFailureException(failure));
+                return;
+            }
+
+            var exception = new StoreFailureException(failure);
+            Debug.LogException(exception);
+            OnStoreFailed?.Invoke(exception);
         }
-        
-        private void PurchaseFailedHandler(PurchaseFailedException exception)
+
+        private void PurchasesFetchedHandler(Orders orders)
         {
-            var response = new PurchaseResponse(exception.Product)
+            Debug.Log($"[{nameof(InAppPurchaseService)}] Purchases was been fetched! " +
+                      $"Confirmed: {orders.ConfirmedOrders.Count}, " +
+                      $"Pending: {orders.PendingOrders.Count}, " +
+                      $"Deferred: {orders.DeferredOrders.Count}");
+        }
+
+        private void PurchasesFetchFailedHandler(PurchasesFetchFailureDescription description)
+        {
+            var exception = new StoreFailureException(description);
+            Debug.LogException(exception);
+            OnStoreFailed?.Invoke(exception);
+        }
+
+        private void PurchasePendingHandler(PendingOrder order)
+        {
+            Product product = order.CartOrdered?.Items()?.FirstOrDefault()?.Product;
+            if (product == null)
+            {
+                Debug.LogError($"[{nameof(InAppPurchaseService)}] Pending order without any product!");
+                return;
+            }
+            
+            string productId = product.definition.id;
+            bool autoConfirm = _autoConfirmByProductId.TryGetValue(productId, out bool value) && value;
+            _autoConfirmByProductId.Remove(productId);
+            var response = new PurchaseResponse(order, product)
+            {
+                Status = PurchaseStatus.Success,
+                IsAutoConfirm = autoConfirm,
+            };
+
+            if (autoConfirm)
+            {
+                _storeController.ConfirmPurchase(order);
+            }
+
+            OnPurchased?.Invoke(response);
+            CompletePurchase(productId, response);
+        }
+
+        private void PurchaseConfirmedHandler(Order order)
+        {
+            if (order is FailedOrder failedOrder)
+            {
+                PurchaseFailedHandler(failedOrder);
+                return;
+            }
+
+            Product product = order.CartOrdered?.Items()?.FirstOrDefault()?.Product;
+            Debug.Log($"[{nameof(InAppPurchaseService)}] Purchase was been confirmed! Product: {product?.definition.id}");
+        }
+
+        private void PurchaseFailedHandler(FailedOrder order)
+        {
+            var exception = new PurchaseFailedException(order);
+            Debug.LogException(exception);
+            string productId = exception.Product?.definition.id;
+            if (productId != null)
+            {
+                _autoConfirmByProductId.Remove(productId);
+            }
+
+            var response = new PurchaseResponse(order, exception.Product)
             {
                 Status = PurchaseStatus.Failure,
                 ErrorMessage = exception.ErrorMessage,
-                IsAutoConfirm = _currentItem.AutoConfirm,
             };
-            
+
             OnPurchaseFailed?.Invoke(response);
-            if (_isPurchaseProcessing && exception.Product.definition.id == _currentItem.ProductId)
-            {
-                _currentItem = default;
-                _isPurchaseProcessing = false;
-                TryInitializePurchase();
-            }
+            CompletePurchase(productId, response);
         }
     }
 }
