@@ -2,11 +2,10 @@
     "name": "com.dtech.inappflex",
     "displayName": "InAppFlex",
     "version": "2.0.0",
-    "unity": "2022.3",
-    "description": "An lightweight system for implementing various purchasing services.",
-    "dependencies": {
-        "com.unity.purchasing": "4.13.0"
-    },
+    "unity": "6000.0",
+    "description": "A lightweight wrapper over Unity Purchasing: products configured in a ScriptableObject, a purchase queue, pending purchase confirmation, subscription info and purchase restoring on iOS and Android.",
+    "changelogUrl": "https://github.com/DanilChizhikov/InAppFlex/releases/tag/v2.0.0",
+    "documentationUrl": "https://github.com/DanilChizhikov/InAppFlex/",
     "keywords": [
         "InApp Purchasing",
         "Purchasing",
@@ -15,7 +14,8 @@
         "iap",
         "IAP",
         "InAppFlex",
-        "inappflex"
+        "inappflex",
+        "upm"
     ],
     "category": "In App Purchasing",
     "author": "DTech",
@@ -27,5 +27,12 @@
     "publishConfig": {
         "registry": "https://npm.pkg.github.com/@DanilChizhikov"
     },
-    "license": "MIT"
+    "dependencies": {
+        "com.unity.purchasing": "4.13.0"
+    },
+    "license": "MIT",
+    "readme": "README.md",
+    "testables": [
+        "com.dtech.inappflex.editor-mode-tests"
+    ]
 }
