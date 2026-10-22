@@ -9,11 +9,10 @@ namespace DTech.InAppFlex
         public override bool IsAvailable => Application.platform == RuntimePlatform.tvOS ||
                                             Application.platform == RuntimePlatform.VisionOS ||
                                             Application.platform == RuntimePlatform.IPhonePlayer;
-        
-        public override void RestorePurchases(IExtensionProvider provider, Action<bool, string> callback)
+
+        public override void RestorePurchases(IPurchaseService purchaseService, Action<bool, string> callback)
         {
-            var extension = provider.GetExtension<IAppleExtensions>();
-            extension.RestoreTransactions(callback);
+            purchaseService.RestoreTransactions(callback);
         }
     }
 }
