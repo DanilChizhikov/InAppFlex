@@ -10,9 +10,11 @@ namespace DTech.InAppFlex
         event Action<IPurchaseResponse> OnPurchased;
         event Action<bool> OnPurchasesRestored;
         event Action<IPurchaseResponse> OnPurchaseFailed;
+        event Action<IPurchaseResponse> OnPurchaseDeferred;
+        event Action<IPurchaseResponse> OnPurchaseConfirmed;
 
         bool IsInitialized { get; }
-        
+
         void Initialize();
         void Purchase(string productId, bool autoConfirm = false);
         decimal GetPrice(string productId);

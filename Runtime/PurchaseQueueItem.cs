@@ -1,13 +1,17 @@
+using UnityEngine.Purchasing;
+
 namespace DTech.InAppFlex
 {
 	internal readonly struct PurchaseQueueItem
 	{
-		public readonly string ProductId;
+		public readonly IProductInfo Info;
+		public readonly Product Product;
 		public readonly bool AutoConfirm;
 
-		public PurchaseQueueItem(string productId, bool autoConfirm)
+		public PurchaseQueueItem(IProductInfo info, Product product, bool autoConfirm)
 		{
-			ProductId = productId;
+			Info = info;
+			Product = product;
 			AutoConfirm = autoConfirm;
 		}
 	}

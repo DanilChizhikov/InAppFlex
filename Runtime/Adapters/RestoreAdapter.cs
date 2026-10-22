@@ -7,6 +7,6 @@ namespace DTech.InAppFlex
     {
         public abstract bool IsAvailable { get; }
 
-        public abstract void RestorePurchases(IExtensionProvider provider, Action<bool, string> callback);
+        public abstract void RestorePurchases(IPurchaseService purchaseService, Action<bool, string> callback);
     }
 }

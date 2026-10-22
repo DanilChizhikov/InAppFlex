@@ -46,6 +46,15 @@ namespace DTech.InAppFlex.Tests.EditorMode
             Assert.AreEqual("com.game.vip", _collection[1].StoreId);
         }
 
+        [Test]
+        public void ExposesFallbackPriceAndCurrency()
+        {
+            StoreFixtures.AddProduct(_collection, "noads", ProductType.NonConsumable, "com.game.noads", 4.99f, "EUR");
+
+            Assert.AreEqual(4.99m, _collection[0].DefaultPrice);
+            Assert.AreEqual("EUR", _collection[0].DefaultCurrency);
+        }
+
         private static void SetProduct(SerializedProperty product, string id, ProductType type, string storeId)
         {
             product.FindPropertyRelative("<Id>k__BackingField").stringValue = id;

@@ -7,5 +7,7 @@ namespace DTech.InAppFlex
 		string Id { get; }
 		ProductType Type { get; }
 		string StoreId { get; }
+		float DefaultPrice { get; }
+		string DefaultCurrency { get; }
 	}
 }
